@@ -12,5 +12,11 @@ unset DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG CONTAINER_HOST CONTAINER_CONNECTI
 CONF="$BASE/.config/containers/happy-sandbox.conf"
 [ -f "$CONF" ] || printf '[engine]\ncgroup_manager="systemd"\nevents_logger="file"\nlock_type="file"\n' > "$CONF"
 export CONTAINERS_CONF="$CONF"
-exec /usr/bin/podman --remote=false --root "$BASE/podman/storage" --runroot "$BASE/podman/run" \
+# Podman refuses a runroot longer than 50 characters: a long build path
+# gets a short one under the runtime directory (one per build path).
+RUNROOT="$BASE/podman/run"
+if [ ${#RUNROOT} -gt 50 ]; then
+    RUNROOT="${XDG_RUNTIME_DIR:-/tmp}/hsb-podman-$(printf %s "$BASE" | sha256sum | cut -c1-12)"
+fi
+exec /usr/bin/podman --remote=false --root "$BASE/podman/storage" --runroot "$RUNROOT" \
     --tmpdir "$BASE/podman/tmp" --events-backend=file "$@"
