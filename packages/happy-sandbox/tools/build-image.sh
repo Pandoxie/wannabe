@@ -38,6 +38,9 @@ echo "==> build sandbox $name"
     --stop-signal SIGRTMIN+3 --systemd always --pull never --http-proxy=false \
     localhost/happy-sandbox-base:dev /sbin/init > /dev/null
 "$P" start "$name" > /dev/null
+# A failed build leaves no container behind (a rerun starts a new one).
+net="" done=""
+trap '[ -z "$net" ] || kill $net 2>/dev/null || true; [ -n "$done" ] || "$P" rm -f "$name" > /dev/null 2>&1 || true' EXIT
 sleep 4
 "$P" cp "$B/bin/happy-sandbox" "$name:/usr/local/lib/happy-sandbox/happy-sandbox"
 "$P" cp "$here/image/provision.sh" "$name:/tmp/provision.sh"
@@ -50,7 +53,6 @@ sleep 4
 HSB_PODMAN="$P" HSB_MIHOMO="$B/deps/mihomo" \
     "$B/bin/happy-sandbox" net-dev "$name" "$node" "$exit_ip" "$run" > "$run/net.log" 2>&1 &
 net=$!
-trap 'kill $net 2>/dev/null || true' EXIT
 for _ in $(seq 30); do grep -q "gate open" "$run/net.log" && break; sleep 1; done
 grep -q "gate open" "$run/net.log" || {
     echo "the exit did not open in 30 s: is the node reachable, and is $exit_ip really its exit IP?" >&2
@@ -111,4 +113,5 @@ fi
     || { echo "the build container did not stop" >&2; exit 1; }
 "$P" commit --change 'CMD ["/sbin/init"]' --change 'STOPSIGNAL SIGRTMIN+3' "$name" "$tag" > /dev/null
 "$P" rm "$name" > /dev/null
+done=1
 "$P" image inspect --format '{{.Id}} {{.Size}}' "$tag"
