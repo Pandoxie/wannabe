@@ -70,7 +70,14 @@ elif [ -s "$STATE/url" ]; then
 else
     BASE="$DEFAULT_DIST_URL"
 fi
-[ -n "$BASE" ] || die "no release source: set HAPPY_DIST_URL to where your build is published (https://… or file:///path/to/dist)"
+# No source at all (a build without a default, e.g. a sandbox image built
+# from a local release directory): `happy update` then updates claude and
+# codex only; anything else needs one.
+NO_SOURCE=""
+if [ -z "$BASE" ]; then
+    [ "${1:-}" = --update ] || die "no release source: set HAPPY_DIST_URL to where your build is published (https://… or file:///path/to/dist)"
+    NO_SOURCE=1
+fi
 
 # Node must run before anything else: the installer itself uses it.
 if ! command -v node >/dev/null 2>&1; then
@@ -314,7 +321,7 @@ fi
 # and, if it differs, install it and run it instead, so a fix to this script
 # reaches every machine even when there is no new happy release.
 # HAPPY_DIST_SELF_UPDATED stops a loop if the published copy is broken.
-if [ "$UPDATE_ALL" = 1 ] && [ -z "${HAPPY_DIST_SELF_UPDATED:-}" ]; then
+if [ "$UPDATE_ALL" = 1 ] && [ -z "${HAPPY_DIST_SELF_UPDATED:-}" ] && [ -z "$NO_SOURCE" ]; then
     # Subshell: fetch exits on failure; a network error must not stop the update.
     if (fetch install.sh "$TMP/install.sh") 2>/dev/null && bash -n "$TMP/install.sh" 2>/dev/null; then
         if ! cmp -s "$TMP/install.sh" "$STATE/install.sh"; then
@@ -338,7 +345,7 @@ fetch_manual() {
         if (fetch "$f" "$TMP/$f") 2>/dev/null; then cp "$TMP/$f" "$STATE/$f"; fi
     done
 }
-[ "$UPDATE_ALL" = 1 ] && fetch_manual
+[ "$UPDATE_ALL" = 1 ] && [ -z "$NO_SOURCE" ] && fetch_manual
 
 # --- Nightly update ----------------------------------------------------------
 # Every machine runs `happy update` at 03:00 local time (cron), as this user:
@@ -536,9 +543,15 @@ if [ "$UPDATE_ALL" = 1 ]; then
         fi
     done
 
-    fetch latest "$TMP/latest"
-    LATEST="$(tr -d '[:space:]' < "$TMP/latest")"
-    INSTALLED="$(cat "$STATE/installed" 2>/dev/null || true)"
+    if [ -n "$NO_SOURCE" ]; then
+        LATEST="$(package_version happy)"
+        INSTALLED="$LATEST"
+        say "happy stays at $LATEST: no release source on this machine (only claude and codex are updated; to update happy, run install.sh from a release directory once)"
+    else
+        fetch latest "$TMP/latest"
+        LATEST="$(tr -d '[:space:]' < "$TMP/latest")"
+        INSTALLED="$(cat "$STATE/installed" 2>/dev/null || true)"
+    fi
     if [ -n "$LATEST" ] && [ "$LATEST" = "$INSTALLED" ] && [ "$(package_version happy)" = "$LATEST" ]; then
         say "happy $INSTALLED is the newest release"
         if [ "$AGENTS_CHANGED" = 0 ]; then

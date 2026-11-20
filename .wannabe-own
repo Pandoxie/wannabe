@@ -4,3 +4,12 @@ README.md
 release/dist-README.md
 setup.sh
 node.example.yaml
+packages/happy-app/sources/components/onboarding/HappyEngineeringWordmark.tsx
+packages/happy-app/sources/assets/images/happy-engineering-stacked-dark.svg
+packages/happy-app/sources/assets/images/happy-engineering-stacked-light.svg
+packages/happy-app/sources/assets/images/logotype-dark.png
+packages/happy-app/sources/assets/images/logotype-dark@2x.png
+packages/happy-app/sources/assets/images/logotype-dark@3x.png
+packages/happy-app/sources/assets/images/logotype-light.png
+packages/happy-app/sources/assets/images/logotype-light@2x.png
+packages/happy-app/sources/assets/images/logotype-light@3x.png

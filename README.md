@@ -235,7 +235,8 @@ Podman 存储也在那里（`tools/podman-dev`），不会碰你自己的 Podman
 4. 安装：`bash ~/wannabe-dist/sandbox/install.sh`，或者在装了 happy 的机器上
    `happy cage install`（和 happy 同一个来源）。
 
-sandbox 里看不到宿主的发布目录。想在 sandbox 里更新 happy，就把发布目录只读共享进去：
+sandbox 里每天凌晨会自动更新 Claude Code 和 Codex（`happy update`，有更新才重启会话）。
+happy 本身不跟着更新：sandbox 里看不到宿主的发布目录。想在 sandbox 里更新 happy，就把发布目录只读共享进去：
 `happy-sandbox share add ~/wannabe-dist /reference/wannabe-dist --ro`（先 down，再 up），
 然后在 sandbox 里运行一次 `bash /reference/wannabe-dist/install.sh`，之后 `happy update`
 就记住了这个来源。也可以直接重新构建镜像。
