@@ -14,6 +14,12 @@ sandbox 里预装了我们魔改过的 [Happy](https://github.com/slopus/happy) 
 重做的 web 客户端、项目和 worktree 视图、会话之间互相汇报的 Fleet Watch、
 终端里的 `happy agent`……用起来前所未有地顺手。
 
+**Claude Code 和 Codex 自动保持最新。** 这两家几乎每周都在更新，手动跟着升级很折腾。
+wannabe 每天凌晨 3 点（本机时间）自动更新 Claude Code 和 Codex；有新版本时，正在运行的
+会话会原地重启到新版本上，还是同一个会话、同一段对话，你在手机上接着用就行。不需要你
+记得去升级，你的会话用的永远是最新版。（重启时正在进行的那一轮回复会被打断；不想要可以
+`touch ~/.happy-dist/no-nightly` 关掉，随时用 `happy update` 手动更新。）
+
 本项目是 Happy（MIT）的非官方分支，和 Happy 及其作者没有关系，也不承诺支持：源码都在这里，看得懂就改，改完自己构建。
 
 ## 一键安装
