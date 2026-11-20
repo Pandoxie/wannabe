@@ -26,6 +26,19 @@
 命令仍然叫 `happy`，数据目录仍然是 `~/.happy`。官方 npm 包 `happy-coder`
 也提供 `happy` 命令，两者会冲突，装之前先卸载它：`npm rm -g happy-coder`。
 
+## 一览：每样东西从哪来
+
+| 东西 | 怎么办 |
+| --- | --- |
+| 手机 | 用官方 Happy App（App Store / Google Play 搜 Happy），本项目不发 App |
+| web | 用 <https://pandoxie.github.io/wannabe>，或者自己部署（见下文） |
+| CLI（`happy`） | 自己构建、自己安装（见下文） |
+| sandbox | 自己构建镜像（见下文） |
+| relay | 默认用上游官方的；想自建就用上游的 relay |
+
+手机 App、web 和 CLI 登录同一个账号（扫码配对），在哪边都能看到和驱动同一批会话。
+用自己的 relay 时，官方 App 里也可以填自定义服务器地址。
+
 ## 准备
 
 - Linux x64 或 macOS（arm64 / x64）
