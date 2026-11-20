@@ -136,15 +136,18 @@ curl -fsSL https://你的地址/install.sh | HAPPY_DIST_URL=https://你的地址
 构建用的东西都放在 `~/build/happy-sandbox-v2`（可用 `HSB_BUILD` 改），构建用的
 Podman 存储也在那里（`tools/podman-dev`），不会碰你自己的 Podman。
 
-1. 准备一个 mihomo 能用的代理节点文件（VLESS 等，chmod 600）和它的出口 IP。
-   sandbox 的所有流量只走这一个出口。把节点文件也放一份到
-   `~/build/happy-sandbox-v2/secrets/`：发布前会检查镜像里没有它的凭证。
-2. 构建工具和镜像：
+1. 准备构建目录：
    ```bash
    cd packages/happy-sandbox
-   go build -o ~/build/happy-sandbox-v2/bin/happy-sandbox ./cmd/happy-sandbox
-   # 把 mihomo 放到 ~/build/happy-sandbox-v2/deps/mihomo
-   HAPPY_DIST_URL=file://$HOME/wannabe-dist tools/build-image.sh 节点.yaml 出口IP
+   tools/prepare-build.sh
+   ```
+   它会编译 `happy-sandbox`，并下载 sandbox 的出口客户端 [mihomo](https://github.com/MetaCubeX/mihomo)
+   （固定版本，校验 sha256），放进构建目录。
+2. 准备一个代理节点：mihomo 格式的节点文件（VLESS 等，chmod 600），和它的出口 IP
+   （这个节点对外显示的公网 IP，安装前会核对）。sandbox 的所有流量只走这一个出口。
+   节点文件放进 `~/build/happy-sandbox-v2/secrets/`，发布前会检查镜像里没有它的凭证。然后构建镜像：
+   ```bash
+   HAPPY_DIST_URL=file://$HOME/wannabe-dist tools/build-image.sh ~/build/happy-sandbox-v2/secrets/节点.yaml 出口IP
    ```
    `build-image.sh` 先把发布目录里最新的 happy 拷进构建用的 sandbox，再通过那个
    出口装 Node、Claude Code、Codex，然后装 happy。拷进去的文件装完就删，不会留在镜像里。
