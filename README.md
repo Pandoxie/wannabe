@@ -167,6 +167,8 @@ node scripts/release-cli.mjs --dist ~/wannabe-dist     # 加 --skip-tests 跳过
 每个平台一个包），连同 `manifest.json`、安装器和说明一起写进 `~/wannabe-dist`。
 版本号取自 `packages/happy-cli/package.json`；再发一版之前先改版本号。
 如果 `--dist` 是一个 git 仓库，每次发布会提交一次，加 `--publish` 还会推送。
+改了代码还没提交时加 `--allow-dirty`；这台机器上的 `claude` 没登录时加 `--skip-claude-turn`
+（默认会用本机的 Claude 跑一轮真实对话来冒烟测试）。
 
 ### 2. 安装
 
