@@ -17,7 +17,9 @@ P="$here/tools/podman-dev"
 node="${1:?node file}" exit_ip="${2:?exit ip}" tag="${3:-localhost/happy-sandbox:latest}"
 name="hsb-build-$(date +%Y%m%d%H%M%S)"
 run="$B/run/$name"
-mkdir -p "$run/link" && chmod 700 "$run" "$run/link"
+# The network link's socket directory: where net-dev (ServeNetwork) listens,
+# $run/run/link, mounted where the guest's hsb-link connects.
+mkdir -p "$run/run/link" && chmod 700 "$run" "$run/run" "$run/run/link"
 
 echo "==> base image"
 # APT_MIRROR (optional) only speeds up the base build; the image keeps the
@@ -32,7 +34,7 @@ echo "==> build sandbox $name"
 "$P" create --name "$name" --network none --security-opt "seccomp=$run/seccomp.json" \
     --cgroupns private --ipc private --hostname hsb-build --memory 4294967296 --pids-limit 4096 \
     --device /dev/net/tun --cap-add NET_ADMIN --tmpfs /run --tmpfs /tmp \
-    -v "$run/link:/var/lib/happy-sandbox/link" \
+    -v "$run/run/link:/var/lib/happy-sandbox/link" \
     --stop-signal SIGRTMIN+3 --systemd always --pull never --http-proxy=false \
     localhost/happy-sandbox-base:dev /sbin/init > /dev/null
 "$P" start "$name" > /dev/null
