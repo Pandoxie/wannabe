@@ -1,0 +1,24 @@
+{
+    "name": "wannabe",
+    "private": true,
+    "scripts": {
+        "web": "pnpm --filter happy-app web",
+        "postinstall": "node ./scripts/postinstall.cjs",
+        "sync-wire": "node ./scripts/sync-wire.mjs"
+    },
+    "pnpm": {
+        "overrides": {
+            "whatwg-url": "14.2.0",
+            "parse-path": "7.0.3",
+            "@types/parse-path": "7.0.3"
+        },
+        "onlyBuiltDependencies": [
+            "@more-tech/react-native-libsodium",
+            "@shopify/react-native-skia",
+            "@tailwindcss/oxide",
+            "esbuild",
+            "sharp"
+        ]
+    },
+    "packageManager": "pnpm@10.11.0"
+}

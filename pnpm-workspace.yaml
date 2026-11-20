@@ -1,0 +1,6 @@
+packages:
+  - "packages/happy-app"
+  - "packages/happy-wire"
+  - "packages/happy-cli"
+  - "packages/happy-agent"
+  - "packages/happy-fleet"

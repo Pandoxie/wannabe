@@ -1,0 +1,14 @@
+{
+  "nvm.sh": {
+    "url": "https://raw.githubusercontent.com/nvm-sh/nvm/v0.41.0/install.sh",
+    "sha256": "045932fe05f0d4247c946f2ec0ec4026dbfd8ce88a5f67ea28d8ea833227f48b"
+  },
+  "claude.sh": {
+    "url": "https://claude.ai/install.sh",
+    "sha256": "3a68d3406cf674e17bed1733a4dcf37805e2e47d87417700007d7e1aa766a944"
+  },
+  "codex.sh": {
+    "url": "https://chatgpt.com/codex/install.sh",
+    "sha256": "5a8eea5c3716b555fd8e539db7e5b0e7470bcee5693191b4758a0de373624a70"
+  }
+}

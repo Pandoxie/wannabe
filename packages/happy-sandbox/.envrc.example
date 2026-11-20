@@ -1,0 +1,4 @@
+# Source this before building: keeps Go's caches and toolchain out of the repo and out of $HOME.
+export HSB_BUILD="$HOME/build/happy-sandbox-v2"
+export PATH="$HSB_BUILD/.tools/go1.26.10/bin:$PATH"
+export GOPATH="$HSB_BUILD/gopath" GOCACHE="$HSB_BUILD/gocache" GOMODCACHE="$HSB_BUILD/gomodcache" GOTOOLCHAIN=local GOFLAGS=-mod=mod

@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Development Podman for happy-sandbox: local rootless Podman with all storage,
+# runtime, temporary files and settings under ~/build/happy-sandbox-v2, so the
+# user's own Podman storage (and any Docker) is never touched.
+# (After the happy-sandbox headless work's tools/podman_local.py.)
+set -euo pipefail
+[ "$(id -u)" != 0 ] || { echo "refusing root Podman" >&2; exit 1; }
+BASE="${HSB_BUILD:-$HOME/build/happy-sandbox-v2}"
+mkdir -p "$BASE/tmp" "$BASE/.config/containers" "$BASE/.cache" "$BASE/.local/share" "$BASE/podman"
+export TMPDIR="$BASE/tmp" XDG_CONFIG_HOME="$BASE/.config" XDG_CACHE_HOME="$BASE/.cache" XDG_DATA_HOME="$BASE/.local/share"
+unset DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG CONTAINER_HOST CONTAINER_CONNECTION CONTAINERS_STORAGE_CONF CONTAINERS_CONF_OVERRIDE
+CONF="$BASE/.config/containers/happy-sandbox.conf"
+[ -f "$CONF" ] || printf '[engine]\ncgroup_manager="systemd"\nevents_logger="file"\nlock_type="file"\n' > "$CONF"
+export CONTAINERS_CONF="$CONF"
+exec /usr/bin/podman --remote=false --root "$BASE/podman/storage" --runroot "$BASE/podman/run" \
+    --tmpdir "$BASE/podman/tmp" --events-backend=file "$@"

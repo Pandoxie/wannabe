@@ -1,0 +1,14 @@
+[Unit]
+Description=happy-sandbox first boot: the dev user takes the host user's uid
+DefaultDependencies=no
+After=local-fs.target
+Before=cron.service sysinit.target
+
+[Service]
+Type=oneshot
+PassEnvironment=HSB_UID HSB_GID HSB_TIMEZONE HSB_LOCALE
+ExecStart=/usr/local/lib/happy-sandbox/hsb-setup.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target

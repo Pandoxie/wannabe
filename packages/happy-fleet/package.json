@@ -1,0 +1,31 @@
+{
+  "name": "happy-fleet",
+  "version": "0.3.1+orig.12",
+  "description": "Original Happy fleet hub: lets the agents of one Happy account find and message each other, and runs their scheduled tasks (happy MCP tools). Run by the happy daemon (`happy fleet on`).",
+  "license": "MIT",
+  "type": "module",
+  "main": "./hub.mjs",
+  "files": [
+    "hub.mjs",
+    "protocol.mjs",
+    "tasks.mjs",
+    "crypto.mjs",
+    "config.mjs",
+    "lease.mjs",
+    "README.md",
+    "package.json"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "for f in hub protocol tasks crypto config lease; do node --check $f.mjs || exit 1; done",
+    "test": "node --test --test-isolation=none 'test/*.test.mjs'"
+  },
+  "dependencies": {
+    "axios": "^1.13.2",
+    "socket.io-client": "^4.8.1",
+    "tweetnacl": "^1.0.3"
+  },
+  "packageManager": "pnpm@10.11.0"
+}

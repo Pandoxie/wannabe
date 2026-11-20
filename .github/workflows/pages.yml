@@ -1,0 +1,58 @@
+# The web app on GitHub Pages (https://<owner>.github.io/<repo>/).
+# Pages needs a public repository (or a paid plan); on a private one this
+# workflow skips itself. Enable it once: Settings → Pages → Source: GitHub Actions.
+name: web (GitHub Pages)
+
+on:
+  push:
+    branches: [main]
+    paths: ['packages/happy-app/**', 'packages/happy-wire/**', 'pnpm-lock.yaml', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: ${{ !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install (web app only)
+        run: >
+          SKIP_HAPPY_WIRE_BUILD=1 pnpm install --frozen-lockfile --filter happy-app...
+          --config.node-linker=isolated --config.shamefully-hoist=false
+      - run: pnpm --filter @slopus/happy-wire build
+      - run: node packages/happy-app/scripts/copy-katex.cjs
+      - name: Export
+        env:
+          NODE_ENV: production
+          APP_ENV: production
+          HAPPY_WEB_BASE_URL: /${{ github.event.repository.name }}
+          HAPPY_BUILD_COMMIT_SHA: ${{ github.sha }}
+        run: pnpm --filter happy-app exec expo export --platform web --output-dir dist
+      - name: Single-page fallback
+        run: cp packages/happy-app/dist/index.html packages/happy-app/dist/404.html && touch packages/happy-app/dist/.nojekyll
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: packages/happy-app/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

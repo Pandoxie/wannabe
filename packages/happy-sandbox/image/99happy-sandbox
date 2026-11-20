@@ -1,0 +1,2 @@
+// happy-sandbox: remember the packages you add (hsb-apt-record.sh).
+DPkg::Post-Invoke { "/usr/local/lib/happy-sandbox/hsb-apt-record.sh || true"; };

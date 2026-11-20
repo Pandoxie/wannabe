@@ -1,0 +1,11 @@
+[Unit]
+Description=happy-sandbox: install the user's apt packages (~/.config/happy-sandbox/apt-packages)
+After=hsb-setup.service
+
+[Service]
+# Not oneshot: boot does not wait for the network or for apt.
+Type=simple
+ExecStart=/usr/local/lib/happy-sandbox/hsb-packages.sh
+
+[Install]
+WantedBy=multi-user.target

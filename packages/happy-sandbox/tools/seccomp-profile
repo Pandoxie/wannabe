@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+"""The sandbox's seccomp profile: the host's default (containers-common), plus
+fchmodat2 -> ENOSYS when the profile does not know it. glibc 2.39 calls
+fchmodat2 to change a symlink's mode; an unknown syscall must answer ENOSYS so
+glibc falls back to fchmodat, but crun 0.17 ignores defaultErrnoRet and
+answers EPERM, which breaks tar (Node, Codex archives). The syscall stays
+blocked; only its error changes."""
+import json, sys
+src = sys.argv[1] if len(sys.argv) > 1 else '/usr/share/containers/seccomp.json'
+profile = json.load(open(src))
+known = {n for rule in profile.get('syscalls', []) for n in rule.get('names', [])}
+if 'fchmodat2' not in known:
+    profile['syscalls'].append({'names': ['fchmodat2'], 'action': 'SCMP_ACT_ERRNO', 'errnoRet': 38})
+json.dump(profile, sys.stdout)
