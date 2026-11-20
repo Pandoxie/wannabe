@@ -2,13 +2,19 @@
 
 *wanna be happy*：想要 happy，但有分寸。
 
-[Happy](https://github.com/slopus/happy)（MIT）的非官方分支。用手机或浏览器
-驱动你自己机器上的 Claude Code 和 Codex，端到端加密。它继续兼容上游的 relay
-和上游的 iOS / Android App，并加上了我们日常在用的东西：重做的 web 客户端、
-项目和 worktree 视图、Fleet Watch（会话之间互相汇报）、`happy agent`、
-`happy-sandbox`（agent 跑在 rootless Podman 盒子里，只有一个受控的网络出口）。
+**给你的 AI agent 一个完全受控的网络环境。**
 
-和 Happy 及其作者没有关系，也不承诺支持：源码都在这里，看得懂就改，改完自己构建。
+Claude Code、Codex 这类 agent 跑在一个 sandbox 里：它是一台小 Linux 服务器
+（rootless Podman），对外只有一条路，就是你指定的那个代理出口，并且锁定在这个
+出口的 IP 上。出口不对或者连不上，所有对外连接立刻断开，不会漏到你本机的网络。
+agent 在哪里、从哪个 IP 出去，始终由你决定。
+
+sandbox 里预装了我们魔改过的 [Happy](https://github.com/slopus/happy) 套件：
+用手机上的官方 Happy App 或网页，随时随地驱动这些 agent，端到端加密。
+重做的 web 客户端、项目和 worktree 视图、会话之间互相汇报的 Fleet Watch、
+终端里的 `happy agent`……用起来前所未有地顺手。
+
+本项目是 Happy（MIT）的非官方分支，和 Happy 及其作者没有关系，也不承诺支持：源码都在这里，看得懂就改，改完自己构建。
 
 ## 一键安装
 
