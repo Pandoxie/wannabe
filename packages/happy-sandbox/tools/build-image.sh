@@ -50,7 +50,11 @@ HSB_PODMAN="$P" HSB_MIHOMO="$B/deps/mihomo" \
 net=$!
 trap 'kill $net 2>/dev/null || true' EXIT
 for _ in $(seq 30); do grep -q "gate open" "$run/net.log" && break; sleep 1; done
-grep -q "gate open" "$run/net.log" || { echo "the gate did not open; see $run/net.log" >&2; exit 1; }
+grep -q "gate open" "$run/net.log" || {
+    echo "the exit did not open in 30 s: is the node reachable, and is $exit_ip really its exit IP?" >&2
+    echo "  logs: $run/net.log, $run/run/mihomo.log, $run/run/state.json" >&2
+    exit 1
+}
 
 # Where happy comes from. A local release directory (file:///…) is copied
 # in (its latest release only): the build's only network is the exit.
