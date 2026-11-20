@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Original Happy installer: installs or updates `happy` (CLI + daemon),
+# wannabe installer: installs or updates `happy` (CLI + daemon),
 # `happy-agent` and `happy-fleet` (Fleet Watch, which the daemon runs after
 # `happy fleet on`) from the happy-dist repository.
 #
@@ -228,7 +228,7 @@ status() {
             e="$(egress_of "$h")"
             [ -n "$e" ] && printf '  %-28s egress %s\n' '' "$e"
             if [ -n "$r" ] && [ "$r" != "$OUR_RELAY" ]; then
-                warn "$h is connected to $r, not the Original Happy relay $OUR_RELAY"
+                warn "$h is connected to $r, not the default relay $OUR_RELAY"
             fi
         done <<< "$homes"
     fi

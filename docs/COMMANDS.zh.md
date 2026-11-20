@@ -169,7 +169,7 @@ bash 和 zsh 的 Tab 补全。
 
 ## 沙盒
 
-cage = 只有一个固定出口 IP 的容器（Original Happy）；sandbox = 本机上的系统级限制（上游）。
+cage = 只有一个固定出口 IP 的容器（wannabe）；sandbox = 本机上的系统级限制（上游）。
 
 ### `happy cage <命令>`
 

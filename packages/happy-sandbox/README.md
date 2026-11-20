@@ -20,7 +20,7 @@
 和 happy 的安装一样：
 
 ```bash
-curl -fsSL "$HAPPY_DIST_URL/sandbox/install.sh" | bash   # HAPPY_DIST_URL: where your build is published (see the top README)
+bash ~/wannabe-dist/sandbox/install.sh   # 你构建的发布目录（见仓库首页 README）
 ```
 
 - 工具装在 `~/.happy-sandbox/bin`，`~/.local/bin/happy-sandbox` 是指向它的链接。

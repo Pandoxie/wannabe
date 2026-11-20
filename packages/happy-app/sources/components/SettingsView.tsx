@@ -79,7 +79,7 @@ export const SettingsView = React.memo(function SettingsView({
     // expo version, which only identifies the client to the relay.
     const buildConfig = getBuildConfig();
     const versionDetail = typeof buildConfig.originalVersion === 'string'
-        ? `Original Happy ${buildConfig.originalVersion}`
+        ? `wannabe ${buildConfig.originalVersion}`
         : (Constants.expoConfig?.version || '1.0.0');
     const versionSubtitle = formatBuildSubtitle(buildConfig);
     const [devModeEnabled, setDevModeEnabled] = useLocalSettingMutable('devModeEnabled');

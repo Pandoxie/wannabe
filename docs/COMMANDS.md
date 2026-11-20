@@ -169,7 +169,7 @@ The installer sets it up (`happy completion install`); open a new shell afterwar
 
 ## Sandboxes
 
-cage = a container with one fixed exit IP (Original Happy); sandbox = OS limits on this machine (upstream).
+cage = a container with one fixed exit IP (wannabe); sandbox = OS limits on this machine (upstream).
 
 ### `happy cage <command>`
 

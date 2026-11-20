@@ -52,7 +52,7 @@ if (!existsSync(distDir)) fail(`no dist directory at ${distDir} (git clone your 
 const distIsGit = existsSync(join(distDir, '.git'));
 if (flag('--publish') && !distIsGit) fail(`--publish needs a git checkout at ${distDir}`);
 const dirty = (dir) => out('git', ['-C', dir, 'status', '--porcelain']);
-if (!flag('--allow-dirty') && dirty(root)) fail('happy-original has uncommitted changes (commit first, or --allow-dirty for a trial run)');
+if (!flag('--allow-dirty') && dirty(root)) fail('this checkout has uncommitted changes (commit first, or --allow-dirty)');
 if (distIsGit && dirty(distDir)) fail(`${distDir} has uncommitted changes`);
 
 const cliDir = join(root, 'packages', 'happy-cli');

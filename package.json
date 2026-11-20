@@ -3,8 +3,7 @@
     "private": true,
     "scripts": {
         "web": "pnpm --filter happy-app web",
-        "postinstall": "node ./scripts/postinstall.cjs",
-        "sync-wire": "node ./scripts/sync-wire.mjs"
+        "postinstall": "node ./scripts/postinstall.cjs"
     },
     "pnpm": {
         "overrides": {

@@ -32,7 +32,7 @@ export function updateArguments(args: string[]): string[] | 'help' {
 export function handleUpdateCommand(args: string[]): never {
     const parsed = updateArguments(args);
     if (parsed === 'help') {
-        console.log(`happy update — update Claude Code, Codex and happy (Original Happy)
+        console.log(`happy update — update Claude Code, Codex and happy (wannabe)
 
   happy update             claude update, codex update, newest happy; restarts
                            sessions if anything changed
@@ -46,7 +46,7 @@ Other accounts: HAPPY_HOME_DIR=~/.happy_x happy update …`);
     }
     const installer = join(process.env.HAPPY_DIST_HOME || join(homedir(), '.happy-dist'), 'install.sh');
     if (!existsSync(installer)) {
-        console.error(`No installer at ${installer}: install Original Happy with the one-line command first.`);
+        console.error(`No installer at ${installer}: install happy first (see the wannabe README).`);
         process.exit(1);
     }
     const r = spawnSync(installer, parsed, { stdio: 'inherit' });

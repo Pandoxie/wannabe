@@ -15,6 +15,9 @@ here="$(cd "$(dirname "$0")/.." && pwd)"
 B="${HSB_BUILD:-$HOME/build/happy-sandbox-v2}"
 P="$here/tools/podman-dev"
 node="${1:?node file}" exit_ip="${2:?exit ip}" tag="${3:-localhost/happy-sandbox:latest}"
+dist="${HAPPY_DIST_URL:-}"
+[ -n "$dist" ] || { echo "set HAPPY_DIST_URL: where happy is installed from (file:///your/release/dir or https://…)" >&2; exit 1; }
+case "$dist" in file://*) [ -f "${dist#file://}/latest" ] || { echo "${dist#file://} is not a release directory (no latest)" >&2; exit 1; } ;; esac
 name="hsb-build-$(date +%Y%m%d%H%M%S)"
 run="$B/run/$name"
 # The network link's socket directory: where net-dev (ServeNetwork) listens,
@@ -62,7 +65,6 @@ grep -q "gate open" "$run/net.log" || {
 
 # Where happy comes from. A local release directory (file:///…) is copied
 # in (its latest release only): the build's only network is the exit.
-dist="${HAPPY_DIST_URL:-}"
 case "$dist" in
     file://*)
         src="${dist#file://}"

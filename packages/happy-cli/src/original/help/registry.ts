@@ -418,8 +418,8 @@ export const GROUPS: readonly Group[] = [
     {
         id: 'sandbox', title: t('Sandboxes', '沙盒'),
         intro: t(
-            'cage = a container with one fixed exit IP (Original Happy); sandbox = OS limits on this machine (upstream).',
-            'cage = 只有一个固定出口 IP 的容器（Original Happy）；sandbox = 本机上的系统级限制（上游）。',
+            'cage = a container with one fixed exit IP (wannabe); sandbox = OS limits on this machine (upstream).',
+            'cage = 只有一个固定出口 IP 的容器（wannabe）；sandbox = 本机上的系统级限制（上游）。',
         ),
         commands: [CAGE, SANDBOX],
     },
