@@ -2,6 +2,16 @@
 
 **给你的 AI agent 一个完全受控的网络环境，再配一套用起来很舒服的遥控器。**
 
+> **English:** wannabe runs Claude Code and Codex agents in a sandbox (rootless
+> Podman) whose only way out is one proxy exit (VLESS, Trojan, Hysteria2, … via
+> mihomo), locked to that exit's IP: if the exit fails, the network is cut, nothing
+> leaks. Inside is a modified [Happy](https://github.com/slopus/happy) harness: drive
+> your agents from the official Happy iOS / Android app or the web, end-to-end
+> encrypted, synced in real time; agents message each other across machines (Fleet
+> Watch); Claude Code and Codex update themselves nightly. The sandbox builds on
+> Claude Cage (MIT). One-click setup: `./setup.sh node.yaml`.
+
+
 ### 受控的网络
 
 Claude Code、Codex 这类 agent 跑在一个 sandbox 里：它是一台小 Linux 服务器
