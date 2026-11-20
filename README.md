@@ -95,9 +95,11 @@ node scripts/release-cli.mjs --dist ~/wannabe-dist     # 加 --skip-tests 跳过
 本机：
 
 ```bash
-HAPPY_DIST_URL=file://$HOME/wannabe-dist bash ~/wannabe-dist/install.sh
+bash ~/wannabe-dist/install.sh
 happy auth login        # 用手机 App 或 web 客户端扫码配对
 ```
+
+直接运行发布目录里的 `install.sh`，它就从这个目录安装。
 
 其他机器：把 `~/wannabe-dist` 放到任何能下载文件的地方（自己的 web 服务器、
 对象存储、git 托管的 raw 文件都行），然后：
@@ -109,7 +111,7 @@ curl -fsSL https://你的地址/install.sh | HAPPY_DIST_URL=https://你的地址
 
 ### 3. 更新
 
-安装器会记住来源（`~/.happy-dist/url`）。之后：
+安装器会记住来源（`~/.happy-dist/url`），之后不用再告诉它：
 
 - `happy update`：更新 Claude Code、Codex 和 happy；有变化才重启会话。
 - 安装时会配好每天凌晨的自动更新；不想要就 `touch ~/.happy-dist/no-nightly`。
@@ -128,10 +130,11 @@ curl -fsSL https://你的地址/install.sh | HAPPY_DIST_URL=https://你的地址
 
 只支持 Linux + rootless Podman。先读 `packages/happy-sandbox/README.md`。
 
-镜像需要你自己构建，大致步骤：
+镜像需要你自己构建。先按上面「CLI」一节在本机做好发布目录（比如 `~/wannabe-dist`），
+镜像里的 happy 就从它装。
 
-构建用的东西都放在 `~/build/happy-sandbox-v2`（可用 `HSB_BUILD` 改），
-构建用的 Podman 存储也在那里（`tools/podman-dev`），不会碰你自己的 Podman。
+构建用的东西都放在 `~/build/happy-sandbox-v2`（可用 `HSB_BUILD` 改），构建用的
+Podman 存储也在那里（`tools/podman-dev`），不会碰你自己的 Podman。
 
 1. 准备一个 mihomo 能用的代理节点文件（VLESS 等，chmod 600）和它的出口 IP。
    sandbox 的所有流量只走这一个出口。把节点文件也放一份到
@@ -141,14 +144,18 @@ curl -fsSL https://你的地址/install.sh | HAPPY_DIST_URL=https://你的地址
    cd packages/happy-sandbox
    go build -o ~/build/happy-sandbox-v2/bin/happy-sandbox ./cmd/happy-sandbox
    # 把 mihomo 放到 ~/build/happy-sandbox-v2/deps/mihomo
-   HAPPY_DIST_URL=https://你发布CLI的地址 tools/build-image.sh 节点.yaml 出口IP
+   HAPPY_DIST_URL=file://$HOME/wannabe-dist tools/build-image.sh 节点.yaml 出口IP
    ```
-   `build-image.sh` 在 sandbox 里通过那个出口安装 Node、Claude Code、Codex
-   和 happy（从 `HAPPY_DIST_URL`，sandbox 里必须访问得到，所以要 http(s)
-   地址，不能是 `file://`）。
+   `build-image.sh` 先把发布目录里最新的 happy 拷进构建用的 sandbox，再通过那个
+   出口装 Node、Claude Code、Codex，然后装 happy。拷进去的文件装完就删，不会留在镜像里。
 3. 发布：`HAPPY_DIST=~/wannabe-dist tools/release.sh 0.1.0`，写进同一个发布目录的 `sandbox/`。
-4. 安装：在装了 happy 的机器上 `happy cage install`（和 happy 同一个来源），
-   或者 `curl -fsSL "$HAPPY_DIST_URL/sandbox/install.sh" | bash`。
+4. 安装：`bash ~/wannabe-dist/sandbox/install.sh`，或者在装了 happy 的机器上
+   `happy cage install`（和 happy 同一个来源）。
+
+sandbox 里看不到宿主的发布目录。想在 sandbox 里更新 happy，就把发布目录只读共享进去：
+`happy-sandbox share add ~/wannabe-dist /reference/wannabe-dist --ro`（先 down，再 up），
+然后在 sandbox 里运行一次 `bash /reference/wannabe-dist/install.sh`，之后 `happy update`
+就记住了这个来源。也可以直接重新构建镜像。
 
 ## 和上游的关系
 

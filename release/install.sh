@@ -41,8 +41,9 @@
 
 set -euo pipefail
 
-# Where releases come from: HAPPY_DIST_URL (an http(s) URL or file:///dir,
-# remembered in $STATE/url for later updates), else the default.
+# Where releases come from: HAPPY_DIST_URL (an http(s) URL or file:///dir),
+# else the release directory this script sits in, else the one remembered in
+# $STATE/url (written by the first two, for later updates), else the default.
 DEFAULT_DIST_URL=""
 STATE="${HAPPY_DIST_HOME:-$HOME/.happy-dist}"
 
@@ -53,8 +54,16 @@ die()  { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 mkdir -p "$STATE"
 chmod 700 "$STATE"
 
-if [ -n "${HAPPY_DIST_URL:-}" ]; then
-    BASE="${HAPPY_DIST_URL%/}"
+# Run from a release directory itself (bash ~/dist/install.sh, not piped
+# from curl): that directory is the source.
+HERE=""
+if [ -f "${BASH_SOURCE[0]:-}" ]; then
+    HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    { [ -f "$HERE/latest" ] && [ -d "$HERE/releases" ]; } || HERE=""
+fi
+if [ -n "${HAPPY_DIST_URL:-}" ] || [ -n "$HERE" ]; then
+    BASE="${HAPPY_DIST_URL:-file://$HERE}"
+    BASE="${BASE%/}"
     [ "$BASE" = "$DEFAULT_DIST_URL" ] && rm -f "$STATE/url" || printf '%s\n' "$BASE" > "$STATE/url"
 elif [ -s "$STATE/url" ]; then
     BASE="$(head -n1 "$STATE/url")"

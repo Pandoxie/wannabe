@@ -9,6 +9,7 @@
 #
 #   tools/build-image.sh NODE_FILE EXIT_IP [TAG]
 #   HAPPY_DIST_URL / HAPPY_DIST_AUTH: where provision.sh installs happy from
+#   (https://…, or file:///dir: a local release directory, copied in)
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 B="${HSB_BUILD:-$HOME/build/happy-sandbox-v2}"
@@ -51,12 +52,37 @@ trap 'kill $net 2>/dev/null || true' EXIT
 for _ in $(seq 30); do grep -q "gate open" "$run/net.log" && break; sleep 1; done
 grep -q "gate open" "$run/net.log" || { echo "the gate did not open; see $run/net.log" >&2; exit 1; }
 
+# Where happy comes from. A local release directory (file:///…) is copied
+# in (its latest release only): the build's only network is the exit.
+dist="${HAPPY_DIST_URL:-}"
+case "$dist" in
+    file://*)
+        src="${dist#file://}"
+        latest="$(head -n1 "$src/latest")"
+        echo "==> happy $latest from $src"
+        stage="$run/happy-dist"
+        mkdir -p "$stage/releases"
+        for f in install.sh latest releases.txt README.md COMMANDS.md COMMANDS.zh.md; do
+            [ ! -f "$src/$f" ] || cp "$src/$f" "$stage/"
+        done
+        cp -r "$src/releases/$latest" "$stage/releases/"
+        chmod -R a+rX "$stage"
+        "$P" cp "$stage" "$name:/var/tmp/happy-dist"
+        dist="file:///var/tmp/happy-dist"
+        ;;
+esac
+
 echo "==> provision (log: $run/provision.log)"
 "$P" exec --user dev --workdir /home/dev -e HOME=/home/dev -e "EXPECTED_EXIT_IP=$exit_ip" \
-    -e "HAPPY_DIST_URL=${HAPPY_DIST_URL:-}" \
+    -e "HAPPY_DIST_URL=$dist" \
     -e "HAPPY_DIST_AUTH=${HAPPY_DIST_AUTH:-}" -e LOCK=/tmp/installers.lock.json \
     "$name" bash /tmp/provision.sh > "$run/provision.log" 2>&1
 tail -8 "$run/provision.log"
+# A copied-in release leaves nothing behind: not the files, not the source
+# (inside a sandbox, `happy update` then asks for one: HAPPY_DIST_URL=…).
+if [ "$dist" = file:///var/tmp/happy-dist ]; then
+    "$P" exec --user 0 "$name" rm -rf /var/tmp/happy-dist /home/dev/.happy-dist/url
+fi
 
 echo "==> finalize and commit $tag"
 kill $net 2>/dev/null || true

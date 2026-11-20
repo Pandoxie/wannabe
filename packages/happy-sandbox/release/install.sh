@@ -12,9 +12,17 @@
 set -euo pipefail
 
 # Where releases come from: HAPPY_DIST_URL (an http(s) URL or file:///dir),
-# else the one happy was installed from (~/.happy-dist/url), else the default.
+# else the release directory this script sits in, else the one happy was
+# installed from (~/.happy-dist/url), else the default.
 DEFAULT_DIST_URL=""
+# Run from a release directory itself (bash ~/dist/sandbox/install.sh): its parent is the source.
+HERE=""
+if [ -f "${BASH_SOURCE[0]:-}" ]; then
+    HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    { [ -f "$HERE/latest" ] && [ -d "$HERE/releases" ]; } || HERE=""
+fi
 if [ -n "${HAPPY_DIST_URL:-}" ]; then DIST="${HAPPY_DIST_URL%/}"
+elif [ -n "$HERE" ]; then DIST="file://$(dirname "$HERE")"
 elif [ -s "${HAPPY_DIST_HOME:-$HOME/.happy-dist}/url" ]; then DIST="$(head -n1 "${HAPPY_DIST_HOME:-$HOME/.happy-dist}/url")"
 else DIST="$DEFAULT_DIST_URL"; fi
 [ -n "$DIST" ] || { printf 'error: no release source: set HAPPY_DIST_URL to where your build is published (https://… or file:///path/to/dist)\n' >&2; exit 1; }

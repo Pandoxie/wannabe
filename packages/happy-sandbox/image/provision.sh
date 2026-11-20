@@ -5,7 +5,7 @@
 # scripts, binary-only Node, relative links).
 #
 #   EXPECTED_EXIT_IP   must be what the providers see, or nothing is installed
-#   HAPPY_DIST_URL     where happy's releases are published (http(s), reachable from the sandbox)
+#   HAPPY_DIST_URL     where happy's releases are (http(s) via the exit, or file:/// inside the box)
 #   HAPPY_DIST_AUTH    its login, if it needs one
 #   LOCK               installers.lock.json (url + sha256 per installer)
 set -euo pipefail

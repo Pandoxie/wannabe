@@ -4,7 +4,8 @@ Written by `scripts/release-cli.mjs`; after an install this file is also in
 `~/.happy-dist/README.md`.
 
 ```bash
-HAPPY_DIST_URL=<this directory's URL, or file:///path> bash install.sh
+bash install.sh                                     # from this directory, on this machine
+curl -fsSL <URL>/install.sh | HAPPY_DIST_URL=<URL> bash   # from where you published it
 ```
 
 - `install.sh` installs `happy`, `happy-agent` and `happy-fleet`, remembers
