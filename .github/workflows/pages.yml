@@ -1,6 +1,7 @@
 # The web app on GitHub Pages (https://<owner>.github.io/<repo>/).
 # Pages needs a public repository (or a paid plan); on a private one this
-# workflow skips itself. Enable it once: Settings → Pages → Source: GitHub Actions.
+# workflow skips itself. Enable it once: Settings → Pages → Source: GitHub Actions
+# (no template needed), then run it from the Actions tab or push to main.
 name: web (GitHub Pages)
 
 on:
