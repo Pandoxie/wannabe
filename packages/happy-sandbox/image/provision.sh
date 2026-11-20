@@ -29,12 +29,26 @@ retry() {
     done
     "$@"
 }
-fetch() { # fetch <name>: download a locked installer and check its sha256
-    local url sum
+# fetch <name>: download an installer from installers.lock.json. A pinned one
+# (versioned URL, "sha256") must match. The vendors' own installers (Claude
+# Code, Codex) change with every release: they are not pinned, only fetched
+# over https from the vendor's host ("host"), and their sha256 is logged.
+fetch() {
+    local url sum host got
     url="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]]["url"])' "$LOCK" "$1")"
-    sum="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]]["sha256"])' "$LOCK" "$1")"
-    curl -fsSL --max-time 120 -o "$work/$1" "$url"
-    echo "$sum  $work/$1" | sha256sum -c --quiet || { echo "$1 changed upstream (sha256); review it and update the lock" >&2; exit 1; }
+    sum="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]].get("sha256", ""))' "$LOCK" "$1")"
+    host="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]].get("host", ""))' "$LOCK" "$1")"
+    if [ -z "$sum" ]; then
+        case "$url" in "https://$host/"*) ;; *) echo "$1: $url is not on $host" >&2; exit 1 ;; esac
+    fi
+    curl -fsSL --proto '=https' --max-time 120 -o "$work/$1" "$url"
+    got="$(sha256sum "$work/$1" | cut -d' ' -f1)"
+    if [ -n "$sum" ]; then
+        [ "$got" = "$sum" ] || { echo "$1 changed upstream (sha256); review it and update the lock" >&2; exit 1; }
+        echo "$1: sha256 $got (pinned)"
+    else
+        echo "$1: sha256 $got (from $host, not pinned)"
+    fi
 }
 retry fetch nvm.sh; retry fetch claude.sh; retry fetch codex.sh
 

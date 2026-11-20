@@ -5,10 +5,10 @@
   },
   "claude.sh": {
     "url": "https://claude.ai/install.sh",
-    "sha256": "2c5506d110560bf618bbe88f678f2c2a0047c86a9c6585fc84976120b1de0b44"
+    "host": "claude.ai"
   },
   "codex.sh": {
     "url": "https://chatgpt.com/codex/install.sh",
-    "sha256": "b698d8eb50c0fbe0214ea57b5bf2af439054108404c6d2b872989db02f4bd574"
+    "host": "chatgpt.com"
   }
 }
