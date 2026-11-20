@@ -10,6 +10,78 @@
 
 和 Happy 及其作者没有关系，也不承诺支持：源码都在这里，看得懂就改，改完自己构建。
 
+## 一键安装
+
+一条命令：在你的 Linux 机器上构建 happy 套件和 sandbox，装好一个 sandbox，
+里面已经带着 happy。然后用手机上的官方 Happy App 扫码，就能在手机上用这台
+sandbox 里的 Claude / Codex。
+
+**你需要：**
+
+- 一台 Linux x86_64 机器（比如 Ubuntu 22.04 / 24.04），普通用户，不要用 root
+- 一个代理节点（VLESS 等）：sandbox 的所有流量只走它，出口固定，连不上就断网，
+  不会漏到你本机的网络
+- 手机上装官方 **Happy** App（App Store / Google Play）
+
+**第 1 步：装依赖**（Ubuntu 示例）
+
+```bash
+sudo apt install git curl python3 podman uidmap pigz
+# Node 20+（推荐 nvm：https://github.com/nvm-sh/nvm）
+# Go 1.26+（https://go.dev/dl/）
+```
+
+**第 2 步：写节点文件**
+
+照着 [`node.example.yaml`](node.example.yaml) 写一个，填上你的服务器信息：
+
+```yaml
+proxies:
+  - name: my-node
+    type: vless
+    server: 203.0.113.10            # 你的服务器 IP（或域名）
+    port: 443
+    uuid: 00000000-0000-0000-0000-000000000000
+    network: tcp
+    udp: true
+    tls: true
+    flow: xtls-rprx-vision
+    servername: www.example.com     # REALITY 用的伪装域名（SNI）
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: 服务器的公钥
+      short-id: 服务器的 short id
+```
+
+只能有一个节点。vmess、trojan、ss、hysteria2、tuic、anytls 也支持，写法见
+[mihomo 文档](https://wiki.metacubex.one/config/proxies/)。
+
+**第 3 步：运行**
+
+```bash
+git clone https://github.com/Pandoxie/wannabe.git
+cd wannabe
+./setup.sh ~/node.yaml            # server 是域名时再加出口 IP：./setup.sh ~/node.yaml 203.0.113.10
+```
+
+第一次要几十分钟（主要是构建镜像）。中途失败了，解决后再运行一次就行，做过的步骤会跳过。
+
+**第 4 步：登录**
+
+```bash
+happy-sandbox shell     # 进入 sandbox
+happy auth login        # 用手机 App 扫码
+claude                  # 登录你的 Claude 账号
+codex login             # 可选
+```
+
+手机 App 里会出现这台 sandbox，在上面开会话就行。也可以用网页：
+<https://pandoxie.github.io/wannabe>。
+
+---
+
+**以下是给懂技术的人看的**：每一步具体做了什么，怎么单独构建、自己托管、改了代码怎么更新。
+
 ## 目录
 
 | 路径 | 内容 |

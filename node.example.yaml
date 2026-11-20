@@ -1,0 +1,20 @@
+# One exit node for happy-sandbox, in mihomo's syntax (exactly one entry
+# under proxies). Copy it, fill in your server's values, chmod 600.
+# This example: VLESS + REALITY (the usual setup of a self-hosted Xray /
+# sing-box server). vmess, trojan, ss, hysteria2, tuic and anytls nodes work
+# too; see https://wiki.metacubex.one/en/config/proxies/
+proxies:
+  - name: my-node
+    type: vless
+    server: 203.0.113.10            # your server's address (IP or domain)
+    port: 443
+    uuid: 00000000-0000-0000-0000-000000000000   # the client id on your server
+    network: tcp
+    udp: true
+    tls: true
+    flow: xtls-rprx-vision
+    servername: www.example.com     # the REALITY target (SNI) your server uses
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: REPLACE_WITH_SERVER_PUBLIC_KEY
+      short-id: REPLACE_WITH_SHORT_ID

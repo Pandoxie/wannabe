@@ -1,0 +1,6 @@
+# Files wannabe keeps itself; scripts/export-wannabe.mjs (in happy-original) leaves them alone.
+README.md
+.github/
+release/dist-README.md
+setup.sh
+node.example.yaml

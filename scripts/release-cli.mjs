@@ -3,7 +3,7 @@
 // local checkout of the happy-dist repository. See docs/RELEASE-CLI.md.
 //
 // Usage (from the local-disk clone, not the CIFS checkout):
-//   node scripts/release-cli.mjs [--dist ~/build/happy-dist] [--skip-tests] [--publish] [--allow-dirty]
+//   node scripts/release-cli.mjs [--dist ~/build/happy-dist] [--skip-tests] [--skip-claude-turn] [--publish] [--allow-dirty]
 //
 // Steps: check both trees are clean → typecheck + test (+ build) both
 // packages → pnpm pack → pin dependencies with npm-shrinkwrap.json → one
@@ -180,8 +180,13 @@ if (files[HOST_PLATFORM]) {
     if (bundled) fail(`a bundled Claude Code is still installed:\n${bundled}`);
     if (existsSync(join(lib, 'node_modules', '@slopus', 'happy-terminal'))) fail('@slopus/happy-terminal got installed; it should not be a dependency');
     // One real remote-mode turn through the installed SDK and the machine's claude.
-    const probe = join(lib, 'release-probe.mjs');
-    writeFileSync(probe, `
+    // --skip-claude-turn: on a machine without a logged-in claude (e.g. one
+    // that only builds for a sandbox).
+    if (flag('--skip-claude-turn')) {
+        console.log('(real Claude turn skipped)');
+    } else {
+        const probe = join(lib, 'release-probe.mjs');
+        writeFileSync(probe, `
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
@@ -192,15 +197,16 @@ for await (const m of q) {
     if (m.type === 'result') { console.log('result ' + m.subtype); break; }
 }
 `);
-    const probeOut = out(process.execPath, [probe], { cwd: lib, env: smokeEnv });
-    // Belt and braces: a daemon started under the temporary home must not outlive the test.
-    try { execFileSync(bin('happy'), ['daemon', 'stop'], { env: smokeEnv, stdio: 'ignore', timeout: 20_000 }); } catch {}
-    rmSync(probe);
-    console.log(probeOut);
-    if (!/result success/.test(probeOut)) fail('the probe turn through the installed SDK and the machine claude failed');
+        const probeOut = out(process.execPath, [probe], { cwd: lib, env: smokeEnv });
+        // Belt and braces: a daemon started under the temporary home must not outlive the test.
+        try { execFileSync(bin('happy'), ['daemon', 'stop'], { env: smokeEnv, stdio: 'ignore', timeout: 20_000 }); } catch {}
+        rmSync(probe);
+        console.log(probeOut);
+        if (!/result success/.test(probeOut)) fail('the probe turn through the installed SDK and the machine claude failed');
+    }
     if (!existsSync(join(lib, 'tools', 'unpacked', 'rg'))) fail('tools were not unpacked on install');
     const size = out('du', ['-sh', lib]).split('\t')[0];
-    console.log(`smoke test OK: happy ${cliVersion}, happy-agent ${agentVersion}, happy-fleet ${fleetVersion}, no bundled Claude Code, real turn OK, installed size ${size}`);
+    console.log(`smoke test OK: happy ${cliVersion}, happy-agent ${agentVersion}, happy-fleet ${fleetVersion}, no bundled Claude Code, ${flag('--skip-claude-turn') ? 'no real turn' : 'real turn OK'}, installed size ${size}`);
 } else {
     console.log(`(no package for this platform, ${HOST_PLATFORM}; smoke test skipped)`);
 }
