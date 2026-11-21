@@ -50,11 +50,15 @@ RUN src=/etc/apt/sources.list.d/ubuntu.sources \
  && useradd -m -u 1000 -U -s /bin/bash dev \
  && echo 'dev ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/dev && chmod 440 /etc/sudoers.d/dev
 
-COPY hsb-setup.sh hsb-packages.sh hsb-apt-record.sh /usr/local/lib/happy-sandbox/
-COPY hsb-setup.service hsb-packages.service /etc/systemd/system/
-COPY 99happy-sandbox /etc/apt/apt.conf.d/99happy-sandbox
+# The guest's own files (build context: the package, .containerignore keeps
+# it to internal/sandbox/guest). happy-sandbox embeds the same files and
+# mounts or writes them over these at every start, so a sandbox runs its
+# happy-sandbox's version.
+COPY internal/sandbox/guest/hsb-setup.sh internal/sandbox/guest/hsb-packages.sh internal/sandbox/guest/hsb-apt-record.sh /usr/local/lib/happy-sandbox/
+COPY internal/sandbox/guest/hsb-setup.service internal/sandbox/guest/hsb-packages.service /etc/systemd/system/
+COPY internal/sandbox/guest/99happy-sandbox /etc/apt/apt.conf.d/99happy-sandbox
 # apt-baseline: the image's own packages; what the user adds on top is
-# recorded in the home by the apt hook and comes back after a recreation.
+# recorded by the apt hook and comes back after a recreation.
 RUN chmod 755 /usr/local/lib/happy-sandbox/hsb-setup.sh /usr/local/lib/happy-sandbox/hsb-packages.sh \
       /usr/local/lib/happy-sandbox/hsb-apt-record.sh \
  && apt-mark showmanual | sort -u > /usr/local/lib/happy-sandbox/apt-baseline \

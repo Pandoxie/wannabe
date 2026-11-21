@@ -6,7 +6,7 @@ Before=cron.service sysinit.target
 
 [Service]
 Type=oneshot
-PassEnvironment=HSB_UID HSB_GID HSB_TIMEZONE HSB_LOCALE
+PassEnvironment=HSB_UID HSB_GID HSB_USER HSB_GROUP HSB_HOME HSB_SHELL HSB_HOME_MODE HSB_TIMEZONE HSB_LOCALE
 ExecStart=/usr/local/lib/happy-sandbox/hsb-setup.sh
 RemainAfterExit=yes
 

@@ -3,6 +3,8 @@ package sandbox
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -127,32 +129,59 @@ func (i *Instance) seccompProfile() (string, error) {
 // NET_ADMIN + /dev/net/tun added, the host user's uid inside (keep-id), the
 // identity (machine id, hostname, time zone, locale) from identity.json, the
 // home and the shares as bind mounts (read-only ones stay so: no
-// CAP_SYS_ADMIN).
+// CAP_SYS_ADMIN), and what access grants of the host: its user and home,
+// resources and devices.
 func (i *Instance) createArgs(seccomp string, gpu *GPU) []string {
-	c, id := i.Config, i.Identity
+	c, id, a, u := i.Config, i.Identity, i.Config.Access, i.User()
+	homeMode := "sandbox"
+	if a.HostHome() {
+		homeMode = "host"
+	}
 	args := []string{"create", "--name", i.Container(), "--label", "happy-sandbox=" + c.Name,
-		"--label", identityLabel + "=" + id.Hash(), "--label", limitsLabel + "=" + c.limitsKey(),
-		"--label", linkLabel + "=" + linkVersion,
+		"--label", identityLabel + "=" + id.Hash(),
 		// The network link's socket directory (ServeNetwork, hsb-link).
 		"-v", i.mountSpec(i.LinkDir(), LinkDirInContainer, "", privateLabel),
 		"--network", "none", "--security-opt", "seccomp=" + seccomp,
 		"--userns=keep-id", "--user", "0:0",
-		"-e", "HSB_UID=" + strconv.Itoa(os.Getuid()), "-e", "HSB_GID=" + strconv.Itoa(os.Getgid()),
+		"-e", "HSB_UID=" + strconv.Itoa(u.UID), "-e", "HSB_GID=" + strconv.Itoa(u.GID),
+		"-e", "HSB_USER=" + u.Name, "-e", "HSB_GROUP=" + u.Group, "-e", "HSB_HOME=" + u.Home,
+		"-e", "HSB_SHELL=" + u.Shell, "-e", "HSB_HOME_MODE=" + homeMode,
 		"-e", "HSB_TIMEZONE=" + id.Timezone, "-e", "HSB_LOCALE=" + id.Locale, "-e", "TZ=" + id.Timezone,
 		"-v", i.mountSpec(i.MachineIDPath(), "/etc/machine-id", "ro", privateLabel),
-		// The crontab lives in the container: hsb-setup writes our lines and the
-		// installer's nightly line comes back with the next happy update.
-		"-v", i.mountSpec(i.HomeDir(), "/home/dev", "", privateLabel),
+		// This happy-sandbox's guest files: setup, environment, entry scripts.
+		"-v", i.mountSpec(i.path("guest"), GuestDir, "ro", privateLabel),
+		"-v", i.mountSpec(i.path("guest", "hsb-setup.sh"), "/usr/local/lib/happy-sandbox/hsb-setup.sh", "ro", privateLabel),
+		"-v", i.mountSpec(i.path("guest", "hsb-setup.service"), "/etc/systemd/system/hsb-setup.service", "ro", privateLabel),
 		"--cgroupns", "private", "--ipc", "private", "--hostname", id.Hostname,
+		// Not podman's /etc/hosts (it names the container, the host and the
+		// host's LAN address): hsb-setup writes one with this host name only.
+		// HOSTNAME too: the image's (from its build container) would win.
+		"--no-hosts", "-e", "HOSTNAME=" + id.Hostname,
 		"--device", "/dev/net/tun", "--cap-add", "NET_ADMIN",
 		"--tmpfs", "/run", "--tmpfs", "/tmp", "--stop-signal", "SIGRTMIN+3", "--stop-timeout", "30",
 		"--systemd", "always", "--pull", "never", "--http-proxy=false"}
-	args = append(args, c.limitArgs()...)
-	if gpu != nil {
-		args = append(args, "--label", gpuLabel+"="+gpu.Key)
-		args = append(args, gpu.args()...)
+	args = append(args, i.resourceArgs()...)
+	args = append(args, i.deviceArgs(gpu)...)
+	// The home: the host's own (read-write, its own path) or the private one.
+	// The crontab lives in the container: hsb-setup writes our lines and the
+	// installer's nightly line comes back with the next happy update.
+	if a.HostHome() {
+		args = append(args, "-v", i.mountSpec(u.Home, u.Home, "rw", noLabel))
 	} else {
-		args = append(args, "--label", gpuLabel+"=-")
+		args = append(args, "-v", i.mountSpec(i.HomeDir(), u.Home, "", privateLabel))
+	}
+	for _, t := range a.Home.Private {
+		args = append(args, "-v", i.mountSpec(i.StateDir(t), stateRoot+"/"+t, "rw", privateLabel))
+	}
+	if a.HostHome() {
+		// The apt hook's record (hsb-apt-record.sh) outside the shared home:
+		// /home/dev is the container layer's then.
+		args = append(args, "-v", i.mountSpec(i.StateDir("apt"), stateRoot+"/apt", "rw", privateLabel))
+	}
+	if len(a.Packages) > 0 {
+		// apt's package lists outlive the container: after a recreate only the
+		// packages themselves are fetched again (the lists are tens of MB).
+		args = append(args, "-v", i.mountSpec(i.AptListsDir(), "/var/lib/apt/lists", "rw", privateLabel))
 	}
 	for _, s := range c.Shares {
 		mode := "rw"
@@ -160,28 +189,39 @@ func (i *Instance) createArgs(seccomp string, gpu *GPU) []string {
 			mode = "ro"
 		}
 		args = append(args, "-v", i.mountSpec(s.Source, s.Target, mode, sharedLabel))
+		if s.Submounts {
+			for _, sub := range submounts(s.Source) {
+				args = append(args, "-v", i.mountSpec(sub, s.Target+sub[len(s.Source):], mode, noLabel))
+			}
+		}
+	}
+	// Last, so nothing mounted above covers them: the sandbox may not change
+	// its own gate (configuration, node, this program).
+	for _, p := range a.Home.Protect {
+		hp := expandHome(p)
+		if t, ok := i.MapHostPath(hp); ok && exists(hp) {
+			args = append(args, "-v", i.mountSpec(hp, t, "ro", noLabel))
+		}
 	}
 	// By id: the container is from exactly the image Ensure compared.
 	return append(args, i.imageID, "/sbin/init")
 }
 
-const identityLabel = "happy-sandbox.identity"
+const (
+	identityLabel = "happy-sandbox.identity"
+	// specLabel is a hash of everything the container is created with: any
+	// change (access, shares, identity, image) recreates it at the next up.
+	specLabel = "happy-sandbox.spec"
+)
 
-const limitsLabel = "happy-sandbox.limits"
-
-// linkLabel names how the network link reaches the container; a container
-// from before the socket link (0.3.0) lacks the mount and is recreated.
-const linkLabel = "happy-sandbox.link"
-
-const linkVersion = "socket1"
-
-// gpuLabel names the GPU spec and choice a container was made with ("-": none).
-const gpuLabel = "happy-sandbox.gpu"
-
-// limitsKey names the limits a container was made with ("-": none).
-func (c Config) limitsKey() string {
-	return "m" + strconv.FormatInt(c.MemoryBytes, 10) + ",c" + strconv.FormatFloat(c.CPUs, 'f', -1, 64) + ",p" + strconv.FormatInt(c.PidsLimit, 10)
+func specHash(args []string) string {
+	sum := sha256.Sum256([]byte(strings.Join(args, "\x00")))
+	return hex.EncodeToString(sum[:8])
 }
+
+// gpuLabel names the GPU spec and choice a container was made with ("-":
+// none); in the spec hash too, so a driver update recreates the container.
+const gpuLabel = "happy-sandbox.gpu"
 
 type labelKind int
 
@@ -306,12 +346,39 @@ func (i *Instance) Ensure(ctx context.Context) (recreated bool, err error) {
 		return false, fmt.Errorf("image %s is not installed: happy-sandbox image load FILE", i.Config.Image)
 	}
 	i.imageID = strings.TrimSpace(imageID)
+	if err := i.Config.Access.Validate(); err != nil {
+		return false, err
+	}
+	if err := CheckHostnameFree(i.Identity.Hostname, i.Config.Name); err != nil {
+		return false, err
+	}
+	gpu, err := i.FindGPU()
+	if err != nil {
+		return false, err
+	}
+	if err := i.writeGuestFiles(); err != nil {
+		return false, err
+	}
+	for _, t := range append([]string{"apt"}, i.Config.Access.Home.Private...) {
+		if err := os.MkdirAll(i.StateDir(t), 0o700); err != nil {
+			return false, err
+		}
+	}
+	if len(i.Config.Access.Packages) > 0 {
+		if err := os.MkdirAll(i.AptListsDir(), 0o755); err != nil {
+			return false, err
+		}
+	}
+	seccomp, err := i.seccompProfile()
+	if err != nil {
+		return false, err
+	}
+	args := i.createArgs(seccomp, gpu)
+	spec := specHash(args)
 	st := i.State(ctx)
 	if st.Exists {
-		// The limits are fixed at creation too (Podman 3.4 has no update): the
-		// container carries them as a label.
-		out, _ := podman(ctx, "container", "inspect", "--format", "{{index .Config.Labels \""+identityLabel+"\"}} {{.Image}} {{index .Config.Labels \""+limitsLabel+"\"}} {{index .Config.Labels \""+gpuLabel+"\"}} {{index .Config.Labels \""+linkLabel+"\"}}", i.Container())
-		if strings.TrimSpace(out) != i.Identity.Hash()+" "+i.imageID+" "+i.Config.limitsKey()+" "+gpuKey(i.Config.GPU)+" "+linkVersion {
+		out, _ := podman(ctx, "container", "inspect", "--format", "{{index .Config.Labels \""+specLabel+"\"}}", i.Container())
+		if strings.TrimSpace(out) != spec {
 			if err := i.Remove(ctx); err != nil {
 				return false, err
 			}
@@ -319,21 +386,16 @@ func (i *Instance) Ensure(ctx context.Context) (recreated bool, err error) {
 		}
 	}
 	if !st.Exists {
-		seccomp, err := i.seccompProfile()
-		if err != nil {
-			return false, err
-		}
-		if err := i.fillHome(ctx, seccomp); err != nil {
-			return false, err
+		if !i.Config.Access.HostHome() {
+			if err := i.fillHome(ctx, seccomp); err != nil {
+				return false, err
+			}
 		}
 		if err := os.MkdirAll(i.LinkDir(), 0o700); err != nil {
 			return false, err
 		}
-		gpu, err := FindGPU(i.Config.GPU)
-		if err != nil {
-			return false, err
-		}
-		if _, err := podman(ctx, i.createArgs(seccomp, gpu)...); err != nil {
+		create := append([]string{args[0], "--label", specLabel + "=" + spec}, args[1:]...)
+		if _, err := podman(ctx, create...); err != nil {
 			if strings.Contains(err.Error(), "cgroup controller") {
 				return false, fmt.Errorf("%v: a limit in config.json needs a cgroup controller this host does not delegate (%s)", err, limitsFix)
 			}
@@ -386,11 +448,13 @@ func (i *Instance) Remove(ctx context.Context) error {
 	return err
 }
 
-// AsDev runs a command in the container as dev with a login environment.
-// runuser sets dev's groups the normal way (podman exec --user would add
-// group 0 on Podman 3.4).
-func (i *Instance) AsDev(ctx context.Context, command string) (string, error) {
-	return podman(ctx, "exec", "--user", "0", "-w", "/home/dev", i.Container(), "runuser", "-l", "dev", "-c", command)
+// AsUser runs a shell command in the container as the guest user with its
+// login environment. runuser sets the user's groups the normal way (podman
+// exec --user would add group 0 on Podman 3.4).
+func (i *Instance) AsUser(ctx context.Context, command string) (string, error) {
+	args := append([]string{"exec", "--user", "0", "-w", i.User().Home, i.Container()},
+		i.EnterArgs([]string{"bash", "-c", command}, false)...)
+	return podman(ctx, args...)
 }
 
 // Destroy removes the container and the whole sandbox directory: home,
@@ -429,4 +493,46 @@ func LoadImage(ctx context.Context, file string) error {
 
 func ListImages(ctx context.Context) (string, error) {
 	return podman(ctx, "images", "--filter", "reference=localhost/happy-sandbox*", "--format", "{{.Repository}}:{{.Tag}}  {{.ID}}  {{.Created}}  {{.Size}}")
+}
+
+// EnsurePackages installs the access.packages that are missing, as root
+// through the gate (the network must be open). A recreated container starts
+// from the image, so this runs at every up; with nothing missing it is one
+// dpkg query. It returns what it installed.
+func (i *Instance) EnsurePackages(ctx context.Context) ([]string, error) {
+	pkgs := i.Config.Access.Packages
+	if len(pkgs) == 0 {
+		return nil, nil
+	}
+	names := make([]string, len(pkgs))
+	for k, p := range pkgs {
+		names[k], _, _ = strings.Cut(p, "=")
+	}
+	// One line per package: "install ok installed" when it is there.
+	out, _ := podman(ctx, append([]string{"exec", "--user", "0", i.Container(),
+		"dpkg-query", "-W", "-f", "${db:Status-Status} ${Package}\n"}, names...)...)
+	have := map[string]bool{}
+	for _, line := range strings.Split(out, "\n") {
+		if f := strings.Fields(line); len(f) == 2 && f[0] == "installed" {
+			have[f[1]] = true
+		}
+	}
+	var missing []string
+	for k, p := range pkgs {
+		if !have[names[k]] {
+			missing = append(missing, p)
+		}
+	}
+	if len(missing) == 0 {
+		return nil, nil
+	}
+	// The image ships without package lists: fetch them once per container.
+	script := `set -e
+export DEBIAN_FRONTEND=noninteractive
+[ -n "$(ls -A /var/lib/apt/lists 2>/dev/null | grep -v -e lock -e partial)" ] || apt-get update -qq
+apt-get install -y -qq --no-install-recommends "$@" >/dev/null || { apt-get update -qq; apt-get install -y -qq --no-install-recommends "$@" >/dev/null; }`
+	if _, err := podman(ctx, append([]string{"exec", "--user", "0", i.Container(), "bash", "-c", script, "hsb-packages"}, missing...)...); err != nil {
+		return nil, fmt.Errorf("installing %s: %v", strings.Join(missing, " "), err)
+	}
+	return missing, nil
 }

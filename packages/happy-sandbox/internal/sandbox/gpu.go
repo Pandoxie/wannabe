@@ -204,7 +204,7 @@ func (g *GPU) setupScript() string {
 // SetupGPU applies the hooks in a running container (after every start: the
 // links and cache live in the container layer, which a recreation resets).
 func (i *Instance) SetupGPU(ctx context.Context) (*GPU, error) {
-	g, err := FindGPU(i.Config.GPU)
+	g, err := i.FindGPU()
 	if err != nil || g == nil {
 		return nil, err
 	}
@@ -212,14 +212,6 @@ func (i *Instance) SetupGPU(ctx context.Context) (*GPU, error) {
 		return g, fmt.Errorf("GPU setup inside: %v", err)
 	}
 	return g, nil
-}
-
-func gpuKey(want string) string {
-	g, err := FindGPU(want)
-	if err != nil || g == nil {
-		return "-"
-	}
-	return g.Key
 }
 
 func dirOf(p string) string {

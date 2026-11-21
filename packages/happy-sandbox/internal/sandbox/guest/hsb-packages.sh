@@ -1,7 +1,8 @@
 #!/bin/bash
 # The user's own apt packages, back after the container is recreated (shares,
 # identity, limits or the image changed: the container layer starts fresh,
-# the home stays). Two lists in dev's home, one package per line, # comments:
+# the home stays). Two lists in dev's home (with the host's home: the
+# sandbox's state/apt), one package per line, # comments:
 # ~/.config/happy-sandbox/apt-packages (written by the user) and
 # apt-packages.auto next to it (recorded by the apt hook, hsb-apt-record.sh). Runs at every boot as root
 # (hsb-packages.service), waits for the network (the gate opens after boot),
@@ -9,7 +10,8 @@
 # container layer so an unchanged list costs nothing.
 set -uo pipefail
 export LC_ALL=C
-dir=/home/dev/.config/happy-sandbox
+dir=/var/lib/happy-sandbox/apt   # the host's home: the sandbox's own (hsb-apt-record.sh)
+[ -d "$dir" ] || dir=/home/dev/.config/happy-sandbox
 lists=()
 for f in "$dir/apt-packages" "$dir/apt-packages.auto"; do [ -f "$f" ] && lists+=("$f"); done
 done_file=/var/lib/happy-sandbox/apt-packages.done

@@ -1,9 +1,10 @@
 // happy-sandbox: a rootless container, like a small Linux server, whose only
 // way out is one VLESS exit locked to its IP.
 //
-//	happy-sandbox init --node FILE --exit-ip IP [--timezone TZ] [--locale L] [--share SRC:TARGET[:ro]]... [--name N]
-//	happy-sandbox up | down | status | identity | shell | exec -- CMD... | destroy --yes [--name N]
-//	happy-sandbox share list | add SRC TARGET [--ro] | rm TARGET [--name N]
+//	happy-sandbox init --node FILE --exit-ip IP [--profile isolated|host] [--timezone TZ] [--locale L] [--share SRC[:TARGET[:ro]]]... [--name N]
+//	happy-sandbox up | down | restart | status | identity | shell | here [CMD...] | exec -- CMD... | destroy --yes [--name N]
+//	happy-sandbox config show | set KEY VALUE | unset KEY | edit | preset host|isolated [--name N]
+//	happy-sandbox share list | add SRC [TARGET] [--ro] [--submounts] | rm TARGET [--name N]
 //	happy-sandbox list
 //
 //	happy-sandbox enable | disable [--name N]
@@ -36,19 +37,35 @@ var version = "dev"
 
 const usage = `happy-sandbox — a Linux sandbox whose only way out is one VLESS exit
 
-  happy-sandbox init --node FILE --exit-ip IP [--share SRC:TARGET[:ro]]...
-                     [--timezone America/New_York] [--locale en_US.UTF-8] [--hostname H]
+  happy-sandbox init --node FILE --exit-ip IP [--profile isolated|host]
+                     [--share SRC[:TARGET[:ro]]]... [--timezone America/New_York]
+                     [--locale en_US.UTF-8] [--hostname H]
                           create a sandbox (FILE: one mihomo node, chmod 600);
-                          time zone and locale should match the exit's region
+                          time zone and locale should match the exit's region.
+                          --profile host: the host user, home, /mnt, memory and GPU;
+                          only the network (the exit) and the identity are its own
   happy-sandbox up        start it; the network opens once the exit is IP
-  happy-sandbox shell     a shell inside, as dev (then: happy auth login, once)
+  happy-sandbox restart   down, then up (applies configuration changes)
+  happy-sandbox shell     a shell inside, as the sandbox's user
+  happy-sandbox here [CMD...]
+                          run CMD (default: a shell) inside, in the host's current
+                          directory; claude / codex get access.tool_args (full access;
+                          HSB_SAFE=1 leaves them out)
   happy-sandbox exec -- CMD...
   happy-sandbox status
-  happy-sandbox identity  what this sandbox looks like from inside (identity.json)
+  happy-sandbox identity [set hostname NAME|random | set mac random | set timezone TZ | set locale L]
+                          what this sandbox looks like from inside (identity.json);
+                          host names are unique on this host
   happy-sandbox down      stop it (files and logins are kept)
-  happy-sandbox share list | add SRC TARGET [--ro] | rm TARGET
-                          shares apply at the next up (the container is recreated;
-                          the home is kept)
+  happy-sandbox config show | set KEY VALUE | unset KEY | edit | preset host|isolated
+                          what the sandbox gets of the host (access: user, home, env,
+                          resources, devices); e.g. config set access.resources.memory 64G
+  happy-sandbox packages list | add PKG... | rm PKG...
+                          apt packages the sandbox keeps: installed at every up when
+                          missing (a recreated container starts from the image)
+  happy-sandbox share list | add SRC [TARGET] [--ro] [--submounts] | rm TARGET
+                          host directories inside (TARGET defaults to SRC's path;
+                          --submounts: every disk mounted below SRC too)
   happy-sandbox list      all sandboxes
   happy-sandbox check     can this host run sandboxes (and if not, why)
   happy-sandbox selinux-policy [--install]
@@ -65,11 +82,14 @@ const usage = `happy-sandbox — a Linux sandbox whose only way out is one VLESS
 
   happy-sandbox version
 
+  Configuration changes (config, share) apply at the next up / restart: the
+  container is recreated; the home, logins and data are kept.
+
   --name N                another sandbox than "default"
 
-  ~/.happy-sandbox/<name>/config.json also takes (README): memory_bytes, cpus,
-  pids_limit (no limit unless set), gpu (NVIDIA: automatic, "none", or one
-  device), host_ports (development: reach the host's 127.0.0.1:<port>).
+  ~/.happy-sandbox/<name>/config.json also takes (README): host_ports
+  (development: reach the host's 127.0.0.1:<port>); the older memory_bytes,
+  cpus, pids_limit and gpu still apply where access says nothing.
   Packages you apt install come back after a recreation by themselves.
 `
 
@@ -141,6 +161,16 @@ func main() {
 		err = cmdShell(args)
 	case "exec":
 		err = cmdExec(args)
+	case "here":
+		err = cmdHere(ctx, args)
+	case "config":
+		err = cmdConfig(ctx, args)
+	case "packages":
+		err = cmdPackages(ctx, args)
+	case "restart":
+		if err = cmdDown(ctx, args); err == nil {
+			err = cmdUp(ctx, args)
+		}
 	case "share":
 		err = cmdShare(ctx, args)
 	case "list":
@@ -295,12 +325,33 @@ type shareList []string
 func (s *shareList) String() string     { return strings.Join(*s, ",") }
 func (s *shareList) Set(v string) error { *s = append(*s, v); return nil }
 
+// parseShare: SRC, SRC:TARGET, SRC:TARGET:ro (an empty TARGET is SRC's own path).
 func parseShare(v string) (sandbox.Share, error) {
 	parts := strings.Split(v, ":")
-	if len(parts) < 2 || len(parts) > 3 || (len(parts) == 3 && parts[2] != "ro" && parts[2] != "rw") {
-		return sandbox.Share{}, fmt.Errorf("--share %q: SRC:TARGET or SRC:TARGET:ro", v)
+	if len(parts) > 3 || (len(parts) == 3 && parts[2] != "ro" && parts[2] != "rw") {
+		return sandbox.Share{}, fmt.Errorf("--share %q: SRC, SRC:TARGET or SRC:TARGET:ro", v)
 	}
-	return sandbox.Share{Source: parts[0], Target: parts[1], ReadOnly: len(parts) == 3 && parts[2] == "ro"}, nil
+	s := sandbox.Share{Source: parts[0]}
+	if len(parts) > 1 {
+		s.Target = parts[1]
+	}
+	s.ReadOnly = len(parts) == 3 && parts[2] == "ro"
+	return s, nil
+}
+
+// addHostMounts adds the host preset's /mnt and /media, unless a share
+// already covers them (those are replaced: the preset mounts everything below).
+func addHostMounts(shares []sandbox.Share) []sandbox.Share {
+	for _, m := range sandbox.HostMounts() {
+		kept := shares[:0:0]
+		for _, s := range shares {
+			if s.Target != m.Target && !strings.HasPrefix(s.Target, m.Target+"/") {
+				kept = append(kept, s)
+			}
+		}
+		shares = append(kept, m)
+	}
+	return shares
 }
 
 func cmdInit(args []string) error {
@@ -309,11 +360,12 @@ func cmdInit(args []string) error {
 	node := fs.String("node", "", "mihomo node file (one node, chmod 600)")
 	exitIP := fs.String("exit-ip", "", "the public IPv4 the providers must see")
 	image := fs.String("image", sandbox.DefaultImage, "image")
-	hostname := fs.String("hostname", "", "the sandbox's hostname (shown as the machine in the Happy app)")
+	hostname := fs.String("hostname", "", "the sandbox's hostname (shown as the machine in the Happy app; default: a random one like ws-7k3q2m, unique on this host)")
 	timezone := fs.String("timezone", sandbox.DefaultTimezone, "IANA time zone of the exit's region")
 	locale := fs.String("locale", sandbox.DefaultLocale, "locale (LANG) of the exit's region")
+	profile := fs.String("profile", "isolated", "isolated, or host: the host user, home, /mnt, memory and GPU (only the network and identity differ)")
 	var shares shareList
-	fs.Var(&shares, "share", "SRC:TARGET[:ro], repeatable; TARGET under /workspace/ or /reference/")
+	fs.Var(&shares, "share", "SRC[:TARGET[:ro]], repeatable; TARGET defaults to SRC's own path")
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
@@ -324,13 +376,13 @@ func cmdInit(args []string) error {
 		printChecks(context.Background())
 		return fmt.Errorf("this host cannot run a sandbox yet (%d of the checks above)", len(bad))
 	}
+	// The host name: random and like any workstation's unless given; never
+	// one the host or another sandbox here already has.
 	host := *hostname
 	if host == "" {
-		h, _ := os.Hostname()
-		host = h + "-sandbox"
-		if name != "default" {
-			host = h + "-" + name
-		}
+		host = sandbox.UniqueHostname(name)
+	} else if err := sandbox.CheckHostnameFree(host, name); err != nil {
+		return err
 	}
 	c := sandbox.Config{Name: name, Image: *image, ExitIP: *exitIP}
 	for _, v := range shares {
@@ -340,11 +392,19 @@ func cmdInit(args []string) error {
 		}
 		c.Shares = append(c.Shares, s)
 	}
+	switch *profile {
+	case "isolated":
+	case "host":
+		c.Access = sandbox.HostPreset()
+		c.Shares = addHostMounts(c.Shares)
+	default:
+		return fmt.Errorf("--profile %q: isolated or host", *profile)
+	}
 	inst, err := sandbox.Create(c, *node, sandbox.NewIdentity(host, *timezone, *locale))
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Created sandbox %q in %s (exit %s).\n", name, inst.Dir, c.ExitIP)
+	fmt.Printf("Created sandbox %q in %s (exit %s, access %s).\n", name, inst.Dir, c.ExitIP, c.Access.Describe())
 	printIdentity(inst)
 	fmt.Println("Next: happy-sandbox up")
 	return nil
@@ -384,6 +444,7 @@ func cmdUp(ctx context.Context, args []string) error {
 	}
 	if _, alive := inst.ReadStatus(); alive {
 		fmt.Println("Already up.")
+		ensurePackages(ctx, inst)
 		return cmdStatus(ctx, args)
 	}
 	if inst.UnitEnabled(ctx) {
@@ -404,8 +465,9 @@ func cmdUp(ctx context.Context, args []string) error {
 		}
 	}
 	if waitOpen(inst, 90*time.Second) {
+		ensurePackages(ctx, inst)
 		// The happy daemon, once logged in (the crontab keeps it running afterwards).
-		_, _ = inst.AsDev(ctx, `[ -f ~/.happy/access.key ] && happy daemon start >/dev/null 2>&1 || true`)
+		_, _ = inst.AsUser(ctx, startHappyDaemon)
 	} else if st, _ := inst.ReadStatus(); st != nil && strings.Contains(st.Reason, "waiting for the sandbox") && sandbox.SELinux(ctx) {
 		// The link never came: on an SELinux host the usual reason is a policy
 		// without the socket rule (module 1.0, from before 0.3.0).
@@ -417,6 +479,26 @@ func cmdUp(ctx context.Context, args []string) error {
 	return cmdStatus(ctx, args)
 }
 
+// startHappyDaemon starts the happy daemon once logged in; its state is
+// $HAPPY_HOME_DIR (the sandbox's own with access.home.private "happy").
+const startHappyDaemon = `[ -f "${HAPPY_HOME_DIR:-$HOME/.happy}/access.key" ] && happy daemon start >/dev/null 2>&1 || true`
+
+// ensurePackages installs missing access.packages (through the gate, so only
+// once it is open). A failure is reported, not fatal: the sandbox runs.
+func ensurePackages(ctx context.Context, inst *sandbox.Instance) {
+	if len(inst.Config.Access.Packages) == 0 {
+		return
+	}
+	fmt.Printf("Checking packages (%s)…\n", strings.Join(inst.Config.Access.Packages, " "))
+	installed, err := inst.EnsurePackages(ctx)
+	switch {
+	case err != nil:
+		fmt.Fprintln(os.Stderr, "happy-sandbox: packages:", err)
+	case len(installed) > 0:
+		fmt.Printf("Installed: %s\n", strings.Join(installed, " "))
+	}
+}
+
 // prepare: the container (recreated if identity.json changed) and the TAP helper.
 func prepare(ctx context.Context, inst *sandbox.Instance) error {
 	recreated, err := inst.Ensure(ctx)
@@ -424,7 +506,7 @@ func prepare(ctx context.Context, inst *sandbox.Instance) error {
 		return err
 	}
 	if recreated {
-		fmt.Println("New image, identity.json, a limit (memory_bytes, cpus, pids_limit) or the GPU changed: the container was recreated (home kept; apt packages come back by themselves).")
+		fmt.Println("The configuration, identity.json, the image or the GPU changed: the container was recreated (home kept; apt packages come back by themselves).")
 	}
 	// The guest side of the network link runs the helper: stop it before the
 	// helper is replaced, start it again after.
@@ -442,11 +524,11 @@ func prepare(ctx context.Context, inst *sandbox.Instance) error {
 	}
 	gpu, err := inst.SetupGPU(ctx)
 	if err != nil {
-		if inst.Config.GPU != "" {
+		if g := inst.Config.Access.Devices.GPU; g != "" && g != "auto" || inst.Config.GPU != "" {
 			return err
 		}
 		// Automatic: a GPU problem must not keep the sandbox from starting.
-		fmt.Fprintf(os.Stderr, "happy-sandbox: GPU not set up (%v); \"gpu\": \"none\" in config.json turns it off\n", err)
+		fmt.Fprintf(os.Stderr, "happy-sandbox: GPU not set up (%v); happy-sandbox config set access.devices.gpu none turns it off\n", err)
 		gpu = nil
 	}
 	if gpu != nil {
@@ -493,7 +575,8 @@ func cmdRun(ctx context.Context, args []string) error {
 	}
 	go func() {
 		if waitOpen(inst, 3*time.Minute) {
-			_, _ = inst.AsDev(ctx, `[ -f ~/.happy/access.key ] && happy daemon start >/dev/null 2>&1 || true`)
+			ensurePackages(ctx, inst)
+			_, _ = inst.AsUser(ctx, startHappyDaemon)
 		}
 	}()
 	return inst.ServeNetwork(ctx)
@@ -589,6 +672,10 @@ func cmdStatus(ctx context.Context, args []string) error {
 		state = "running"
 	}
 	fmt.Printf("  container: %s, hostname %s, image %s\n", state, inst.Hostname(), c.Image)
+	fmt.Printf("  access:    %s\n", c.Access.Describe())
+	if len(c.Access.Packages) > 0 {
+		fmt.Printf("  packages:  %s (installed at every up when missing)\n", strings.Join(c.Access.Packages, " "))
+	}
 	st, alive := inst.ReadStatus()
 	switch {
 	case st == nil || !alive:
@@ -603,7 +690,13 @@ func cmdStatus(ctx context.Context, args []string) error {
 		if s.ReadOnly {
 			mode = "ro"
 		}
+		if s.Submounts {
+			mode += ", with everything mounted below"
+		}
 		fmt.Printf("  share:     %s -> %s (%s)\n", s.Source, s.Target, mode)
+	}
+	if c.Access.HostHome() {
+		fmt.Printf("  home:      the host's %s (rw)\n", inst.User().Home)
 	}
 	switch {
 	case !inst.UnitEnabled(ctx):
@@ -614,7 +707,7 @@ func cmdStatus(ctx context.Context, args []string) error {
 		fmt.Println("  boot:      starts with the host")
 	}
 	if cs.Running {
-		out, _ := inst.AsDev(ctx, `if [ -f ~/.happy/access.key ]; then happy daemon status 2>/dev/null | grep -m1 -iE "running|not running" || echo "logged in"; else echo "not logged in (happy-sandbox shell, then: happy auth login)"; fi`)
+		out, _ := inst.AsUser(ctx, `if ! command -v happy >/dev/null; then echo "not installed"; elif [ -f "${HAPPY_HOME_DIR:-$HOME/.happy}/access.key" ]; then happy daemon status 2>/dev/null | grep -m1 -iE "running|not running" || echo "logged in"; else echo "not logged in (happy-sandbox shell, then: happy auth login)"; fi`)
 		fmt.Printf("  happy:     %s\n", strings.TrimSpace(out))
 	}
 	return nil
@@ -628,19 +721,22 @@ func orDash(s string) string {
 }
 
 // execInto replaces this process with an interactive podman exec as dev.
-func execInto(inst *sandbox.Instance, command []string) error {
+func execInto(inst *sandbox.Instance, command []string, dir string, interactive bool) error {
 	bin, err := exec.LookPath(sandbox.Podman())
 	if err != nil {
 		return err
 	}
-	argv := []string{bin, "exec", "-i", "--user", "0", "-w", "/home/dev", "-e", "TERM=" + os.Getenv("TERM")}
+	if dir == "" {
+		dir = inst.User().Home
+	}
+	argv := []string{bin, "exec", "-i", "--user", "0", "-w", dir}
+	tty := false
 	if fi, _ := os.Stdin.Stat(); fi != nil && fi.Mode()&os.ModeCharDevice != 0 {
 		argv = append(argv, "-t")
+		tty = true
 	}
-	argv = append(argv, inst.Container(), "runuser", "-l", "dev")
-	if len(command) > 0 {
-		argv = append(argv, "-c", shellJoin(command))
-	}
+	argv = append(argv, inst.Container())
+	argv = append(argv, inst.EnterArgs(command, interactive && tty)...)
 	return syscall.Exec(bin, argv, os.Environ())
 }
 
@@ -660,7 +756,7 @@ func cmdShell(args []string) error {
 	if !inst.State(context.Background()).Running {
 		return errors.New("the sandbox is not running: happy-sandbox up")
 	}
-	return execInto(inst, nil)
+	return execInto(inst, nil, "", true)
 }
 
 func cmdExec(args []string) error {
@@ -677,7 +773,47 @@ func cmdExec(args []string) error {
 	if !inst.State(context.Background()).Running {
 		return errors.New("the sandbox is not running: happy-sandbox up")
 	}
-	return execInto(inst, rest)
+	return execInto(inst, rest, "", false)
+}
+
+// cmdHere runs a command inside, in the sandbox path of the host's current
+// directory, as if typed in a terminal there. access.tool_args are added for
+// the tools they name (claude, codex: full access).
+func cmdHere(ctx context.Context, args []string) error {
+	inst, rest, err := load(args)
+	if err != nil {
+		return err
+	}
+	if len(rest) > 0 && rest[0] == "--" {
+		rest = rest[1:]
+	}
+	if len(rest) == 0 {
+		rest = []string{"bash"}
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	if real, err := filepath.EvalSymlinks(cwd); err == nil {
+		cwd = real
+	}
+	dir, ok := inst.MapHostPath(cwd)
+	if !ok {
+		if _, err := sandbox.CheckShare(sandbox.Share{Source: cwd}, nil); err != nil {
+			return fmt.Errorf("%s is not visible in sandbox %q, and cannot be shared at its own path (%v); run from a shared directory", cwd, inst.Config.Name, err)
+		}
+		return fmt.Errorf("%s is not visible in sandbox %q: happy-sandbox share add %s --name %s, then happy-sandbox restart --name %s", cwd, inst.Config.Name, cwd, inst.Config.Name, inst.Config.Name)
+	}
+	if _, alive := inst.ReadStatus(); !alive || !inst.State(ctx).Running {
+		fmt.Fprintf(os.Stderr, "Starting sandbox %q…\n", inst.Config.Name)
+		if err := cmdUp(ctx, []string{"--name", inst.Config.Name}); err != nil {
+			return err
+		}
+	}
+	if extra := inst.Config.Access.ToolArgs[filepath.Base(rest[0])]; len(extra) > 0 && os.Getenv("HSB_SAFE") == "" {
+		rest = append(append([]string{rest[0]}, extra...), rest[1:]...)
+	}
+	return execInto(inst, rest, dir, true)
 }
 
 func cmdShare(ctx context.Context, args []string) error {
@@ -694,16 +830,36 @@ func cmdShare(ctx context.Context, args []string) error {
 			if s.ReadOnly {
 				mode = "ro"
 			}
+			if s.Submounts {
+				mode += ", with everything mounted below"
+			}
 			fmt.Printf("%s -> %s (%s)\n", s.Source, s.Target, mode)
 		}
 		return nil
 	}
 	switch rest[0] {
 	case "add":
-		if len(rest) < 3 {
-			return errors.New("share add SRC TARGET [--ro]")
+		// share add SRC [TARGET] [--ro] [--submounts]
+		var pos []string
+		share := sandbox.Share{}
+		for _, a := range rest[1:] {
+			switch a {
+			case "--ro":
+				share.ReadOnly = true
+			case "--submounts":
+				share.Submounts = true
+			default:
+				pos = append(pos, a)
+			}
 		}
-		s, err := sandbox.CheckShare(sandbox.Share{Source: rest[1], Target: rest[2], ReadOnly: len(rest) > 3 && rest[3] == "--ro"}, inst.Config.Shares)
+		if len(pos) < 1 || len(pos) > 2 {
+			return errors.New("share add SRC [TARGET] [--ro] [--submounts]   (TARGET defaults to SRC's own path)")
+		}
+		share.Source = pos[0]
+		if len(pos) == 2 {
+			share.Target = pos[1]
+		}
+		s, err := sandbox.CheckShare(share, inst.Config.Shares)
 		if err != nil {
 			return err
 		}
@@ -726,21 +882,18 @@ func cmdShare(ctx context.Context, args []string) error {
 		}
 		inst.Config.Shares = kept
 	default:
-		return errors.New("share list | add SRC TARGET [--ro] | rm TARGET")
+		return errors.New("share list | add SRC [TARGET] [--ro] [--submounts] | rm TARGET")
 	}
 	// Mounts are fixed when a container is created: it is recreated at the
-	// next up. The home is in the sandbox directory and stays.
-	if cs := inst.State(ctx); cs.Running {
-		return errors.New("stop the sandbox first (happy-sandbox down); shares change only while it is stopped")
-	}
+	// next up. The home stays.
 	if err := inst.Save(); err != nil {
 		return err
 	}
-	if err := inst.Remove(ctx); err != nil {
-		return err
+	if inst.State(ctx).Running {
+		fmt.Println("Shares changed; apply them with: happy-sandbox restart (home, logins and data are kept).")
+	} else {
+		fmt.Println("Shares changed; they apply at the next `happy-sandbox up` (home, logins and data are kept).")
 	}
-	fmt.Println("Shares changed; they apply at the next `happy-sandbox up`. Your home is kept;")
-	fmt.Println("system changes outside them (apt packages) are reset when the container is recreated.")
 	return nil
 }
 
@@ -801,9 +954,12 @@ func printIdentity(inst *sandbox.Instance) {
 }
 
 func cmdIdentity(args []string) error {
-	inst, _, err := load(args)
+	inst, rest, err := load(args)
 	if err != nil {
 		return err
+	}
+	if len(rest) > 0 {
+		return cmdIdentitySet(inst, rest)
 	}
 	printIdentity(inst)
 	fmt.Println(`
@@ -813,6 +969,46 @@ func cmdIdentity(args []string) error {
   Not in it: CPU, memory and kernel are the host's (shared by all sandboxes
   on this host; a container cannot change them); the public IP is the exit's;
   the IDs Claude Code, Codex and happy create live in the home and persist.`)
+	return nil
+}
+
+// cmdIdentitySet: identity set hostname NAME|random, timezone TZ, locale L.
+// identity.json changes; the next up recreates the container with it.
+func cmdIdentitySet(inst *sandbox.Instance, rest []string) error {
+	if len(rest) != 3 || rest[0] != "set" {
+		return errors.New("identity [set hostname NAME|random | set mac random | set timezone TZ | set locale L]")
+	}
+	if inst.Identity == nil {
+		return errors.New("this sandbox has no identity.json")
+	}
+	id := *inst.Identity
+	switch key, val := rest[1], rest[2]; key {
+	case "hostname":
+		if val == "random" {
+			val = sandbox.UniqueHostname(inst.Config.Name)
+		} else if err := sandbox.CheckHostnameFree(val, inst.Config.Name); err != nil {
+			return err
+		}
+		id.Hostname = val
+	case "mac":
+		if val != "random" {
+			return errors.New("identity set mac random: a new NIC vendor's MAC (and gateway MAC)")
+		}
+		fresh := sandbox.NewIdentity(id.Hostname, id.Timezone, id.Locale)
+		id.MAC, id.GatewayMAC = fresh.MAC, fresh.GatewayMAC
+	case "timezone":
+		id.Timezone = val
+	case "locale":
+		id.Locale = val
+	default:
+		return fmt.Errorf("identity set %s: hostname, mac, timezone or locale", key)
+	}
+	if err := inst.SaveIdentity(id); err != nil {
+		return err
+	}
+	inst.Identity = &id
+	printIdentity(inst)
+	fmt.Println("\nSaved. It applies at the next start: happy-sandbox restart (home, logins and data are kept).")
 	return nil
 }
 

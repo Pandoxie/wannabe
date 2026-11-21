@@ -11,12 +11,15 @@
 #   WANNABE_DIST     发布目录（默认 ~/wannabe-dist）
 #   HSB_BUILD        构建目录（默认 ~/build/happy-sandbox-v2）
 #   WANNABE_SANDBOX  sandbox 名字（默认 default）
+#   WANNABE_PROFILE  isolated（默认：沙箱有自己的 home）或 host（宿主镜像模式：
+#                    同一个用户、home、conda、/mnt，只有网络和身份是自己的）
 #   WANNABE_REBUILD=1  重新构建镜像
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 DIST="${WANNABE_DIST:-$HOME/wannabe-dist}"
 B="${HSB_BUILD:-$HOME/build/happy-sandbox-v2}"
 NAME="${WANNABE_SANDBOX:-default}"
+PROFILE="${WANNABE_PROFILE:-isolated}"
 SB="$ROOT/packages/happy-sandbox"
 
 step() { printf '\n\033[1;36m[%s] %s\033[0m\n' "$1" "$2"; }
@@ -27,6 +30,7 @@ node_file="${1:-}"
 exit_ip="${2:-}"
 [ -n "$node_file" ] || die "用法：./setup.sh 节点.yaml [出口IP]（节点文件的写法见 node.example.yaml）"
 [ -f "$node_file" ] || die "找不到节点文件 $node_file"
+case "$PROFILE" in isolated|host) ;; *) die "WANNABE_PROFILE 只能是 isolated 或 host（现在是 $PROFILE）" ;; esac
 
 # ── 1. 检查环境 ────────────────────────────────────────────────────────────
 step 1/7 "检查环境"
@@ -112,7 +116,7 @@ step 7/7 "创建并启动 sandbox「$NAME」"
 if [ -f "$HOME/.happy-sandbox/$NAME/config.json" ]; then
     say "sandbox「$NAME」已经存在，直接启动"
 else
-    "$hsb" init "${name_opt[@]}" --node "$node_copy" --exit-ip "$exit_ip"
+    "$hsb" init "${name_opt[@]}" --profile "$PROFILE" --node "$node_copy" --exit-ip "$exit_ip"
 fi
 "$hsb" up "${name_opt[@]}"
 

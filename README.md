@@ -101,6 +101,11 @@ cd wannabe
 
 第一次要几十分钟（主要是构建镜像）。中途失败了，解决后再运行一次就行，做过的步骤会跳过。
 
+想让 sandbox 和你的机器几乎一样（同一个用户、home、conda、`/mnt`、GPU，只有网络、机器身份和
+Claude / Codex / happy 的登录是它自己的），用宿主镜像模式：`WANNABE_PROFILE=host ./setup.sh ~/node.yaml`。
+已有的 sandbox 也能改过来：`happy-sandbox config preset host && happy-sandbox restart`。
+详见 [`packages/happy-sandbox/README.md`](packages/happy-sandbox/README.md)「宿主镜像模式」。
+
 **第 4 步：登录**
 
 ```bash

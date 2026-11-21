@@ -377,6 +377,10 @@ set -u
 LOG="$STATE/nightly.log"
 [ -f "\$LOG" ] && [ "\$(wc -c < "\$LOG" 2>/dev/null || echo 0)" -gt 1048576 ] && mv -f "\$LOG" "\$LOG.1"
 exec >>"\$LOG" 2>&1
+# The state directory this script belongs to (cron starts it with a bare
+# environment); in a happy-sandbox, the sandbox's own environment too.
+export HAPPY_DIST_HOME="$STATE"
+[ -r /etc/happy-sandbox/env.sh ] && . /etc/happy-sandbox/env.sh >/dev/null 2>&1
 [ -s "\$HOME/.nvm/nvm.sh" ] && . "\$HOME/.nvm/nvm.sh" >/dev/null 2>&1
 export PATH="$dirs:\$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:\$PATH"
 echo "===== \$(date '+%F %T') nightly happy update"

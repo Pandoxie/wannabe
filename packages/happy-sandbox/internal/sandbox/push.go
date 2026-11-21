@@ -19,6 +19,15 @@ func Relay() string {
 	return "https://api.cluster-fluster.com"
 }
 
+// HappyHome is the happy state directory inside: the sandbox's own with
+// access.home.private "happy", else ~/.happy of the guest user.
+func (i *Instance) HappyHome() string {
+	if i.Config.Access.PrivateTool("happy") {
+		return stateRoot + "/happy"
+	}
+	return i.User().Home + "/.happy"
+}
+
 // Notify sends a push to the devices of the happy account logged in inside
 // the sandbox, from the host. When the gate is closed the sandbox has no
 // network at all, so it cannot tell anyone itself; the host can (its own
@@ -26,7 +35,7 @@ func Relay() string {
 // through the container (the volume's directories belong to the container's
 // root on the host). Not logged in yet: nothing to do.
 func (i *Instance) Notify(ctx context.Context, title, body string) error {
-	out, err := podman(ctx, "exec", "--user", "0", i.Container(), "sh", "-c", "cat /home/dev/.happy/access.key 2>/dev/null || true")
+	out, err := podman(ctx, "exec", "--user", "0", i.Container(), "sh", "-c", "cat "+shellQuote(i.HappyHome()+"/access.key")+" 2>/dev/null || true")
 	if err != nil {
 		return err
 	}

@@ -29,7 +29,7 @@ const (
 	// HostIP is the host's loopback as the guest sees it, for the ports an
 	// instance opens with host_ports only (nothing else answers there).
 	HostIP     = "192.168.64.254"
-	TapName    = "hsbtap0"
+	TapName    = "eth0"
 	NetworkMTU = 1500
 )
 

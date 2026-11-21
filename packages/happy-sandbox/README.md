@@ -54,21 +54,33 @@ codex login
 
 时区和 locale 请选得和出口所在地区一致。不写的话默认是美国西部、en_US.UTF-8。
 
+想让沙箱和宿主几乎一样（同一个用户、home、conda、/mnt、内存和 GPU），见下面「宿主镜像模式」。
+
 ## 命令
 
 ```
-happy-sandbox init --node FILE --exit-ip IP [--timezone TZ] [--locale L] [--hostname H] [--share SRC:TARGET[:ro]]...
-happy-sandbox up | down | status | shell | exec -- CMD...
+happy-sandbox init --node FILE --exit-ip IP [--profile isolated|host] [--timezone TZ] [--locale L]
+                   [--hostname H] [--share SRC[:TARGET[:ro]]]...
+happy-sandbox up | down | restart | status | shell | exec -- CMD...
+happy-sandbox here [CMD...]         在宿主当前目录对应的沙箱路径里运行 CMD（默认一个 shell）
+happy-sandbox config show | set KEY VALUE | unset KEY | edit | preset host|isolated
+                                    沙箱能用宿主的哪些东西（见「宿主镜像模式」）
+happy-sandbox packages list | add PKG... | rm PKG...
+                                    沙箱要一直保留的 apt 包（容器重建后自动重装）
 happy-sandbox identity              这台沙箱从里面看是什么样的机器
-happy-sandbox share list | add SRC TARGET [--ro] | rm TARGET     先 down 再改，下次 up 生效
+happy-sandbox share list | add SRC [TARGET] [--ro] [--submounts] | rm TARGET
 happy-sandbox enable | disable      跟宿主一起启动；网络进程出错时自动重启
 happy-sandbox list
-happy-sandbox check                 宿主能不能跑沙箱
+happy-sandbox check                 宿主能不能跑沙箱（不能的话说明原因；也报告 GPU）
+happy-sandbox selinux-policy [--install]   CentOS/RHEL/Fedora：TAP 设备的那条 SELinux 规则
 happy-sandbox image list | load FILE
 happy-sandbox destroy --yes         删掉这个沙箱和它的整个目录
 happy-sandbox version
 --name N                            操作 default 以外的沙箱（可以有多个，每个可以用不同的出口）
 ```
+
+改配置（`config`、`share`）后执行 `happy-sandbox restart` 生效：容器按新配置重建，
+home、登录信息和数据都保留。
 
 ## 文件在哪
 
@@ -76,56 +88,148 @@ happy-sandbox version
 
 | 文件 | 内容 |
 | --- | --- |
-| `config.json` | 出口 IP、镜像、共享目录；可选的资源限制和宿主端口（见下） |
+| `config.json` | 出口 IP、镜像、共享目录、`access`（能用宿主的哪些东西）；可选的宿主端口 |
 | `identity.json` | 机器身份（见下） |
 | `machine-id` | 由 identity.json 生成，只读挂载为 `/etc/machine-id` |
 | `node.yaml` | 出口节点（权限 600） |
-| `home/` | dev 用户的 home：登录信息、代码、在里面生成的 ssh/git 密钥 |
+| `home/` | 沙箱自己的 home（隔离模式）：登录信息、代码、在里面生成的 ssh/git 密钥 |
+| `state/` | `access.home.private` 里工具的私有状态（宿主镜像模式下 Claude / Codex / happy 的登录），以及宿主镜像模式下 apt 的自动记录（`state/apt`） |
+| `apt-lists/` | apt 的软件包索引（配置了 `packages` 时），容器重建后继续用 |
+| `guest/` | 由配置生成、只读挂载到沙箱 `/etc/happy-sandbox` 的启动脚本和环境 |
 | `run/` | 网络状态和日志：`gate.log`（出口检查）、`net.log`、`mihomo.log` |
 
-容器本身随时可以从这些文件重建。改共享目录、改身份、改资源限制、换新镜像时都会自动重建，home 保留。只有 home 以外的系统改动会丢掉，比如用 apt 装的包。
+容器本身随时可以从这些文件重建。改配置、改共享目录、改身份、换新镜像、宿主升级显卡驱动时都会自动重建，
+home 保留。只有 home 以外的系统改动会丢掉；apt 装的包会自动补回（见下）。
 
-### 自己装的系统包（重建后自动补回）
+隔离模式下，宿主机上的东西只有共享目录会进到沙箱：不带入宿主 home，也不带入 ssh/git 凭据。
+需要的话在沙箱里自己配，配好后会跟着 home 一起保留。
 
-`apt install` 装的东西在容器层里，容器重建时本来会丢。现在是自动的：
+共享目录的目标路径默认和宿主相同；可以放在除系统目录（`/usr`、`/etc`、`/var`、`/tmp`、
+`/proc` 等）以外的任何地方。读写还是只读由 `:ro` / `--ro` 决定。`--submounts` 会把源目录
+下面挂载的每块盘（包括 autofs / NFS）也一起挂进去，例如 `share add /mnt --submounts`。
 
-- 每次 `apt install`、`apt remove` 之后，沙箱都会把「你在镜像之外加装的包」记到 home 里的 `~/.config/happy-sandbox/apt-packages.auto`。
-- 容器重建后开机，等网络通了，会自动把缺的包装回来（日志用 `journalctl -u hsb-packages` 查看）。
+## 宿主镜像模式
 
-所以平时照常 `sudo apt install` 就行，什么都不用记。想在重建后多装一些还没装过的包，可以写进同目录的 `apt-packages`，一行一个，`#` 后面是注释。两个列表会合在一起装。
-
-镜像里已经自带常用工具：vim、jq、rsync、ripgrep、tree、htop、file、zip、lsof、strace、ssh 客户端，还有 Chromium 需要的系统库和中日韩字体。这些不用写进列表。
-
-### 资源限制（默认不限）
-
-默认不限制 CPU、内存和进程数，沙箱和宿主上的其他程序一样，用多少占多少。需要限制时，在 `config.json` 里写上，下次 `up` 生效（会重建容器，home 保留）：
-
-```json
-"memory_bytes": 34359738368,
-"cpus": 8,
-"pids_limit": 16384
+```bash
+happy-sandbox init --profile host --node node.yaml --exit-ip 203.0.113.7 --timezone America/New_York
+# 或者把已有的沙箱改过来（出口、身份、数据不变）：
+happy-sandbox config preset host && happy-sandbox restart
 ```
 
-- `memory_bytes`：内存上限，单位字节（上例是 32 GiB，至少 256 MiB）。
-- `cpus`：最多用几个核，可以写小数，比如 `2.5`。
-- `pids_limit`：进程加线程的总数上限（至少 256）。编译、测试这类并行任务很容易用到几千个，设得太小会出现 `fork: resource temporarily unavailable`。
-- 不写或写 0 就是不限制。限制是整个沙箱共用的，里面所有会话加在一起算。
+沙箱里运行的程序和在宿主上运行几乎没有区别，只有这几样是它自己的：
+
+1. **网络**：仍然只有门禁这一条路，出口 IP 不对就断网。
+2. **机器身份**：machine-id、MAC、主机名、时区。
+3. **Claude / Codex / happy 的登录**：存在 `~/.happy-sandbox/<名字>/state/`，和宿主的互不影响。
+   happy 的账号和 daemon 是沙箱自己的，App 里它是一台单独的机器（沙箱的 hostname），
+   宿主上另外装的 happy 不受影响。
+
+`happy-sandbox config show` 里的 `access` 段决定沙箱能用宿主的什么，每一项都能单独改：
+
+| 配置 | host 预设 | 含义 |
+| --- | --- | --- |
+| `user` | `host` | 沙箱里的用户名、uid、gid、home 路径、shell 和宿主一样（隔离模式是 `dev`） |
+| `home.mode` | `host` | 宿主的 home 以原路径读写挂载：同一个 `.bashrc`、conda、git 配置、工具 |
+| `home.private` | `claude`, `codex`, `happy` | 这些工具的登录和设置不用宿主的，用沙箱自己的一份 |
+| `home.protect` | 门禁相关的几个目录 | 在读写的 home 上再挂一层只读，沙箱改不了自己的出口、节点和门禁程序 |
+| `env.unset` | 各种 `*_proxy` | 进入沙箱时清掉的环境变量（宿主 `.bashrc` 里指向局域网代理的变量在沙箱里会断网） |
+| `env.set` | — | 进入沙箱时额外设置的变量 |
+| `resources.memory` | 默认 | 默认宿主内存的 90%（至少给宿主留 4G）；也可写 `64G`、`max` |
+| `resources.pids` | 默认 | 进程数上限，默认不限；也可写 `4096` |
+| `resources.cpus` | 默认 | 默认全部 CPU；或者一个数，例如 `8` |
+| `resources.shm` | 默认 | `/dev/shm` 大小，默认和宿主一样；PyTorch 多进程加载数据、把缓存放在 `/dev/shm` 的程序需要大一些 |
+| `resources.ulimits` | 默认 | 文件句柄等上限，默认跟随宿主；`podman` 用 Podman 自己的 |
+| `devices.gpu` | `auto` | `auto`、`none`、`nvidia`、`amd`，或者 NVIDIA 的某一块卡（`0`、UUID），见下 |
+| `devices.extra` | — | 其他设备，例如 `/dev/ttyUSB0` |
+| `tool_args` | Claude / Codex 的 full access 参数 | `happy-sandbox here claude` 时自动加上；`HSB_SAFE=1` 时不加 |
+| `packages` | `openssh-client` | 要一直保留的 apt 包，见下 |
+| `shares` | `/mnt`、`/media`（`submounts`） | 宿主的其他目录，原路径读写 |
+
+例：`happy-sandbox config set access.resources.memory 64G`，然后 `happy-sandbox restart`。
+隔离模式下这些项也都能用（资源、GPU、packages、env）。
+
+**这个模式放开了什么**：沙箱可以读写宿主 home 和 /mnt 下的一切（`protect` 的除外）。
+沙箱写进宿主的东西（conda 里的包、`.bashrc`、脚本），之后**由宿主运行时走的是宿主的网络**，
+门禁管不到。门禁保证的是：沙箱里运行的程序（Claude Code 等）发出的流量永远只走那个出口。
+
+系统目录（`/usr`、`/etc`，apt 装的软件）仍然是镜像里的：容器要运行自己的 systemd。
+镜像里的 Node、happy 装在 `/home/dev`（容器层）：宿主的工具优先，宿主没有的才用镜像的。
+容器重建后它们回到镜像里的版本，下一次夜间更新再跟上。
+
+### 在宿主当前目录里用
+
+```bash
+cd /mnt/某个项目
+happy-sandbox here claude      # full access（tool_args），路径和宿主一样
+happy-sandbox here             # 一个 shell
+happy-sandbox here python train.py
+```
+
+## apt 包（重建后自动补回）
+
+`apt install` 装的东西在容器层里，容器重建时本来会丢。有两种办法让它们回来，可以同时用：
+
+**自动记录**：每次 `apt install`、`apt remove` 之后，沙箱都会把「你在镜像之外加装的包」
+记到 `apt-packages.auto`；容器重建后开机，等网络通了，在里面自动装回来（日志：
+`journalctl -u hsb-packages`）。平时照常 `sudo apt install` 就行。记录在：
+
+- 隔离模式：home 里的 `~/.config/happy-sandbox/`
+- 宿主镜像模式：`~/.happy-sandbox/<名字>/state/apt/`（不写进宿主的 home）
+
+同目录的 `apt-packages` 可以手写，一行一个，`#` 后面是注释，和自动记录的合在一起装。
+
+**`packages` 列表**（在 `config.json` 里，从宿主管理）：每次 `up` 时检查，缺了就通过门禁装上：
+
+```bash
+happy-sandbox packages add openssh-client htop    # 沙箱开着的话立刻安装
+happy-sandbox packages list
+happy-sandbox packages rm htop
+```
+
+用了 `packages` 时，apt 的软件包索引保存在 `~/.happy-sandbox/<名字>/apt-lists/`，只在第一次
+下载（几十 MB，走门禁要几分钟）；之后重建容器只需要重新下载包本身。
+
+镜像里已经自带常用工具：vim、jq、rsync、ripgrep、tree、htop、file、zip、lsof、strace、ssh 客户端，还有 Chromium 需要的系统库和中日韩字体。
+
+## 资源限制
+
+`access.resources`（见上表）：默认内存是宿主的 90%（至少给宿主留 4G）、不限进程数、全部 CPU、
+`/dev/shm` 和 ulimits 跟随宿主。限制是整个沙箱共用的，里面所有会话加在一起算。
+
+- 进程数设得太小，编译、测试这类并行任务会出现 `fork: resource temporarily unavailable`。
 - 每一项都要宿主把对应的 cgroup 控制器交给普通用户（`happy-sandbox check` 会列出有哪些）。Ubuntu 默认只给 memory 和 pids，要用 `cpus` 得先加一个 systemd 配置：`/etc/systemd/system/user@.service.d/delegate.conf` 写 `[Service]` 和 `Delegate=cpu cpuset io memory pids`，然后 `sudo systemctl daemon-reload`，重新登录。
+- 旧写法 `config.json` 顶层的 `memory_bytes`（字节）、`cpus`、`pids_limit` 仍然有效，`access.resources` 里写了的项优先。
 
-### GPU（NVIDIA，自动）
+## GPU
 
-宿主有 NVIDIA 显卡，并且装了驱动和 NVIDIA Container Toolkit（有 `/etc/cdi/nvidia.yaml` 或 `/var/run/cdi/nvidia.yaml`）时，沙箱会自动用上所有 GPU：
+`devices.gpu` 为 `auto`（默认）时：宿主装好了 NVIDIA 的 CDI 描述就给所有 NVIDIA GPU，否则装了
+ROCm 就用 AMD，都没有就不给。`none` 不给；`0` 或某块卡的 UUID 只给那一块。
+（旧写法：`config.json` 顶层的 `"gpu"`，`access.devices.gpu` 没写时才看它。）
+
+**NVIDIA**：
 
 - 沙箱里能直接用 `nvidia-smi`。驱动用的是宿主的，宿主升级驱动后，下次 `up` 会自动重建容器跟上，home 保留。
-- PyTorch 这类框架在 home 里安装就行，比如 `python3 -m venv ~/venv && ~/venv/bin/pip install torch`。它们自带 CUDA 运行库，只需要宿主的驱动；装在 home 里，重建也不会丢。
-- `config.json` 里写 `"gpu": "none"` 就不给 GPU；写 `"gpu": "0"` 或某块卡的 UUID，就只给那一块。
-- 没有描述文件时（比如刚装好 Toolkit），在宿主上执行一次 `sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml`。`happy-sandbox check` 会显示检测结果。
+- PyTorch 这类框架自带 CUDA 运行库，只需要宿主的驱动：隔离模式装在 home 里，宿主镜像模式下宿主 conda 里的 CUDA 版 PyTorch 直接能用。
+- 每台机器做一次：
 
-### 开发用：从沙箱连宿主端口（默认关）
+```bash
+nvidia-smi                                   # 先确认宿主的驱动正常
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+  | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+  | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
+  | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+sudo apt update && sudo apt install -y nvidia-container-toolkit
+sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml   # 每次升级驱动后重新执行
+happy-sandbox check                          # 应显示 NVIDIA GPU (optional) ok
+happy-sandbox restart
+```
 
-`"host_ports": [22]`：沙箱里访问 `192.168.64.254:22`，就连到宿主本机的 `127.0.0.1:22`（比如从沙箱 ssh 到宿主）。只开列出的 TCP 端口、只到宿主本机，其他流量照旧只走出口。改完 `down` 再 `up` 生效，不重建容器。
+**AMD（实验性）**：需要宿主装好 ROCm，用户在 `render`、`video` 组里。`check` 会报告。
 
-宿主上的东西只有共享目录会进到沙箱里：不会带进宿主的 home，也不会带进 ssh/git 凭据。需要的话在沙箱里自己配，配好后会跟着 home 一起保留。
+## 开发用：从沙箱连宿主端口（默认关）
+
+`config.json` 里写 `"host_ports": [22]`：沙箱里访问 `192.168.64.254:22`，就连到宿主本机的 `127.0.0.1:22`（比如从沙箱 ssh 到宿主）。只开列出的 TCP 端口、只到宿主本机，其他流量照旧只走出口。改完 `down` 再 `up` 生效，不重建容器。
 
 ## 网络是怎么锁住的
 
@@ -141,6 +245,10 @@ happy-sandbox version
 从沙箱里面看到的"这台机器"，分三层：
 
 1. **identity.json（我们控制）**：machine-id、网卡 MAC、hostname、时区、locale。`init` 时随机生成，不取宿主的任何信息，镜像里也不带任何身份，所以同一个镜像的不同用户、不同沙箱都各不相同。之后每次 `up` 都按这个文件来，重启宿主、换新镜像、重建容器，看到的都是同一台机器。改这个文件（或从备份恢复）后，下次 `up` 就按新的来。
+   - **hostname**：默认是一个普通工作站的名字（如 `ws-7k3q2m`、`dev-k9f2xa`），不带宿主的名字，也不带 sandbox 字样。**同一台宿主上每个沙箱的 hostname 都不同**，也不会和宿主自己的一样：`init`、`identity set`、`up` 都会检查，重名就拒绝。手机 App 里看到的机器名就是它。
+   - **MAC**：真实网卡厂商（Intel、Realtek）的前缀加随机的后三字节，不是一看就是虚拟网卡的「本地管理」地址。网卡名是 `eth0`。
+   - **`/etc/hosts`** 由沙箱自己写，只有 `localhost` 和自己的 hostname，不会出现宿主的主机名、局域网 IP 或容器名。
+   - 改：`happy-sandbox identity set hostname NAME`（或 `random`：新随机一个）、`set mac random`、`set timezone TZ`、`set locale L`，然后 `happy-sandbox restart`。
 2. **宿主硬件（如实暴露）**：CPU 型号和核数、内存、内核版本。容器和宿主共用内核，改不了，同一台宿主上的所有沙箱都一样。我们不去伪造它们。硬件序列号这类只有宿主 root 能读的信息，沙箱里读不到。
 3. **工具自己的标识（在 home 里）**：Claude Code、Codex、happy 第一次运行时各自生成的安装 ID 和登录信息，都存在 home 里，一直保留。
 
