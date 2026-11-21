@@ -182,7 +182,7 @@ happy-sandbox（Linux，rootless Podman）把 happy 和 agent 放进一个容器
 | `happy cage install` | 安装 happy-sandbox（从 happy 的同一个发布源） |
 | `happy cage update` | 更新 happy-sandbox |
 | `happy cage uninstall` | 卸载 happy-sandbox |
-| `happy cage init` | 创建沙盒<br>`--node <file>` 一个 mihomo 节点文件（chmod 600）<br>`--exit-ip <ip>` 模型厂商必须看到的公网 IPv4<br>`--share SRC:TARGET[:ro]` 共享宿主机目录（可多次）<br>`--timezone <tz>` 出口所在地的时区<br>`--locale <locale>` 出口所在地的 locale<br>`--hostname <name>` 主机名（App 里显示的机器名）<br>`--image <image>` 镜像 |
+| `happy cage init` | 创建沙盒<br>`--node <file>` 一个 mihomo 节点文件（chmod 600）<br>`--exit-ip <ip>` 模型厂商必须看到的公网 IPv4<br>`--share SRC:TARGET[:ro]` 共享宿主机目录（可多次）<br>`--from-host PATH[:rw]` 借用宿主 home 里的文件或目录，如 .ssh（可多次）<br>`--timezone <tz>` 出口所在地的时区<br>`--locale <locale>` 出口所在地的 locale<br>`--hostname <name>` 主机名（App 里显示的机器名）<br>`--image <image>` 镜像 |
 | `happy cage up` | 启动；出口确认是该 IP 后才放行网络 |
 | `happy cage down` | 停止（文件和登录都保留） |
 | `happy cage shell` | 以 dev 用户进入沙盒的 shell |
@@ -194,6 +194,9 @@ happy-sandbox（Linux，rootless Podman）把 happy 和 agent 放进一个容器
 | `happy cage share list` | 列出共享 |
 | `happy cage share add <src> <target>` | 添加共享<br>`--ro` 只读 |
 | `happy cage share rm <target>` | 删除共享 |
+| `happy cage from-host list` | 列出借用的 |
+| `happy cage from-host add <path[:rw]>...` | 借用，默认只读，:rw 可写 |
+| `happy cage from-host rm <path>...` | 不再借用 |
 | `happy cage image load <file>` | 安装镜像（OCI 包）；沙盒下次 up 时切换过去 |
 | `happy cage image list` | 已安装的镜像 |
 | `happy cage enable` | 随宿主机启动；网络出错时自动重启 |

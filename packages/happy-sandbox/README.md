@@ -37,7 +37,8 @@ bash ~/wannabe-dist/sandbox/install.sh   # 你构建的发布目录（见仓库�
 chmod 600 node.yaml
 happy-sandbox init --node node.yaml --exit-ip 203.0.113.7 \
     --timezone America/Los_Angeles --locale en_US.UTF-8 \
-    --share ~/proj:/workspace/proj --share ~/data:/reference/data:ro
+    --share ~/proj:/workspace/proj --share ~/data:/reference/data:ro \
+    --from-host .ssh --from-host .gitconfig
 happy-sandbox up          # 起容器和网络；确认出口 IP 正确后才放行
 happy-sandbox shell       # 以 dev 用户进去
 ```
@@ -61,6 +62,7 @@ happy-sandbox init --node FILE --exit-ip IP [--timezone TZ] [--locale L] [--host
 happy-sandbox up | down | status | shell | exec -- CMD...
 happy-sandbox identity              这台沙箱从里面看是什么样的机器
 happy-sandbox share list | add SRC TARGET [--ro] | rm TARGET     先 down 再改，下次 up 生效
+happy-sandbox from-host list | add PATH[:rw]... | rm PATH...    借用宿主 home 里的配置（见下）；同样先 down
 happy-sandbox enable | disable      跟宿主一起启动；网络进程出错时自动重启
 happy-sandbox list
 happy-sandbox check                 宿主能不能跑沙箱
@@ -69,6 +71,32 @@ happy-sandbox destroy --yes         删掉这个沙箱和它的整个目录
 happy-sandbox version
 --name N                            操作 default 以外的沙箱（可以有多个，每个可以用不同的出口）
 ```
+
+## 共享目录和借用宿主的配置
+
+**共享目录**（`--share` / `share add`）：宿主的目录挂进沙箱，默认可读写。挂载点可以是
+`/workspace/…`、`/reference/…`，也可以就是它在宿主上的原路径（`share add ~/proj ~/proj`），
+这样写死了绝对路径的东西（conda 环境、脚本、配置）照样能用。宿主的系统目录（`/usr`、`/etc`、
+`/tmp`、`/opt` 等）不能当挂载点；整个 home、`~/.happy-sandbox` 和构建目录的 secrets 不能共享。
+
+**借用宿主的配置**（`--from-host` / `from-host add`）：不用把 ssh 钥匙、git、gh、云服务的登录再导入
+一遍。列出 home 里的路径，沙箱 home 的同一位置就显示宿主的那份，默认只读，`:rw` 可写：
+
+```bash
+happy-sandbox down
+happy-sandbox from-host add .ssh .gitconfig .config/gh .aws
+happy-sandbox up
+```
+
+- 沙箱还是它自己：自己的 home，自己的 Claude、Codex、happy 和它们的登录。`.claude*`、`.codex`、
+  `.happy*`、`.nvm`、`.local`、`.npm`、`.cache` 不能借（那是沙箱自己的工具）。
+- 借用期间盖住沙箱自己同名的文件，`rm` 之后原来的又出来。宿主上不存在的路径不挂并提示。
+- 只读挂的单个文件，在沙箱里 `git config --global` 改不了（git 用的是「写新文件再替换」）。
+- SELinux 宿主（CentOS / RHEL / Fedora）上，借用了东西的沙箱不再做 SELinux 标签隔离
+  （否则读不到宿主的文件；给 `~/.ssh` 重打标签会弄坏宿主的 sshd）。
+
+两者都是**你把宿主的东西交给了 agent**：借的密钥能经出口用出去，可写的共享目录里 agent 改什么就是
+什么（包括 `.git/hooks`，你在宿主上跑 git 时会执行）。只借需要的，能只读就只读。
 
 ## 文件在哪
 

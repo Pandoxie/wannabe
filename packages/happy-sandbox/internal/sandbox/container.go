@@ -128,10 +128,15 @@ func (i *Instance) seccompProfile() (string, error) {
 // identity (machine id, hostname, time zone, locale) from identity.json, the
 // home and the shares as bind mounts (read-only ones stay so: no
 // CAP_SYS_ADMIN).
-func (i *Instance) createArgs(seccomp string, gpu *GPU) []string {
+//
+// fromHost: the from_host mounts (fromHostMounts). They are the host's own
+// files and are never relabelled; on an SELinux host the container then runs
+// without SELinux separation (label=disable), or it could not read them.
+func (i *Instance) createArgs(seccomp string, gpu *GPU, fromHost []string) []string {
 	c, id := i.Config, i.Identity
 	args := []string{"create", "--name", i.Container(), "--label", "happy-sandbox=" + c.Name,
 		"--label", identityLabel + "=" + id.Hash(), "--label", limitsLabel + "=" + c.limitsKey(),
+		"--label", fromHostLabel + "=" + fromHostKey(c.FromHost),
 		"--label", linkLabel + "=" + linkVersion,
 		// The network link's socket directory (ServeNetwork, hsb-link).
 		"-v", i.mountSpec(i.LinkDir(), LinkDirInContainer, "", privateLabel),
@@ -161,11 +166,21 @@ func (i *Instance) createArgs(seccomp string, gpu *GPU) []string {
 		}
 		args = append(args, "-v", i.mountSpec(s.Source, s.Target, mode, sharedLabel))
 	}
+	// After /home/dev's own mount (podman orders mounts by destination too).
+	args = append(args, fromHost...)
+	if len(fromHost) > 0 && i.selinux {
+		args = append(args, "--security-opt", "label=disable")
+	}
 	// By id: the container is from exactly the image Ensure compared.
 	return append(args, i.imageID, "/sbin/init")
 }
 
 const identityLabel = "happy-sandbox.identity"
+
+// fromHostLabel names the from_host list a container was made with; a
+// container from before it (no label) counts as "-" (none), so upgrading
+// recreates nothing.
+const fromHostLabel = "happy-sandbox.from-host"
 
 const limitsLabel = "happy-sandbox.limits"
 
@@ -310,8 +325,12 @@ func (i *Instance) Ensure(ctx context.Context) (recreated bool, err error) {
 	if st.Exists {
 		// The limits are fixed at creation too (Podman 3.4 has no update): the
 		// container carries them as a label.
-		out, _ := podman(ctx, "container", "inspect", "--format", "{{index .Config.Labels \""+identityLabel+"\"}} {{.Image}} {{index .Config.Labels \""+limitsLabel+"\"}} {{index .Config.Labels \""+gpuLabel+"\"}} {{index .Config.Labels \""+linkLabel+"\"}}", i.Container())
-		if strings.TrimSpace(out) != i.Identity.Hash()+" "+i.imageID+" "+i.Config.limitsKey()+" "+gpuKey(i.Config.GPU)+" "+linkVersion {
+		out, _ := podman(ctx, "container", "inspect", "--format", "{{index .Config.Labels \""+identityLabel+"\"}} {{.Image}} {{index .Config.Labels \""+limitsLabel+"\"}} {{index .Config.Labels \""+gpuLabel+"\"}} {{index .Config.Labels \""+linkLabel+"\"}} {{index .Config.Labels \""+fromHostLabel+"\"}}", i.Container())
+		got := strings.TrimSpace(out)
+		if strings.HasSuffix(got, " <no value>") {
+			got = strings.TrimSuffix(got, "<no value>") + "-"
+		}
+		if got != i.Identity.Hash()+" "+i.imageID+" "+i.Config.limitsKey()+" "+gpuKey(i.Config.GPU)+" "+linkVersion+" "+fromHostKey(i.Config.FromHost) {
 			if err := i.Remove(ctx); err != nil {
 				return false, err
 			}
@@ -333,7 +352,14 @@ func (i *Instance) Ensure(ctx context.Context) (recreated bool, err error) {
 		if err != nil {
 			return false, err
 		}
-		if _, err := podman(ctx, i.createArgs(seccomp, gpu)...); err != nil {
+		fromHost, skipped, err := i.fromHostMounts()
+		if err != nil {
+			return false, err
+		}
+		for _, p := range skipped {
+			fmt.Fprintf(os.Stderr, "from_host: ~/%s does not exist on this host, not lent\n", p)
+		}
+		if _, err := podman(ctx, i.createArgs(seccomp, gpu, fromHost)...); err != nil {
 			if strings.Contains(err.Error(), "cgroup controller") {
 				return false, fmt.Errorf("%v: a limit in config.json needs a cgroup controller this host does not delegate (%s)", err, limitsFix)
 			}

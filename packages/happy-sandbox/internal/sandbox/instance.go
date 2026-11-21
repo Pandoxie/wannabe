@@ -43,6 +43,10 @@ type Config struct {
 	// GPU: absent = all NVIDIA GPUs when the host has a CDI spec (automatic),
 	// "none" = off, or one device of the spec ("0", a GPU UUID, "all").
 	GPU string `json:"gpu,omitempty"`
+	// FromHost lends paths of the host user's home to dev's home at the same
+	// place, read-only unless PATH:rw (".ssh", ".gitconfig", ".config/gh:rw").
+	// A change recreates the container at the next up (home kept). fromhost.go.
+	FromHost []string `json:"from_host,omitempty"`
 }
 
 // CheckLimits validates the resource limits (0 or absent: no limit).
@@ -181,6 +185,9 @@ func Load(name string) (*Instance, error) {
 	if err := c.CheckLimits(); err != nil {
 		return nil, fmt.Errorf("%s/config.json: %v", dir, err)
 	}
+	if _, err := CheckFromHost(c.FromHost); err != nil {
+		return nil, fmt.Errorf("%s/config.json: %v", dir, err)
+	}
 	inst := &Instance{Config: c, Dir: dir}
 	id, err := inst.LoadIdentity()
 	if err != nil {
@@ -240,6 +247,9 @@ func Create(c Config, nodeFile string, id Identity) (*Instance, error) {
 		}
 		c.Shares[k] = s
 	}
+	if _, err := CheckFromHost(c.FromHost); err != nil {
+		return nil, err
+	}
 	inst := &Instance{Config: c, Identity: &id, Dir: dir}
 	if err := os.MkdirAll(inst.RunDir(), 0o700); err != nil {
 		return nil, err
@@ -264,12 +274,17 @@ func CheckShare(s Share, existing []Share) (Share, error) {
 		return s, fmt.Errorf("share source %s must be an existing directory", s.Source)
 	}
 	home := os.Getenv("HOME")
-	if src == "/" || src == home || strings.HasPrefix(Home()+"/", src+"/") {
+	if src == "/" || src == home {
 		return s, fmt.Errorf("share source %s is too broad (it contains your home or the sandbox files)", s.Source)
 	}
+	for _, private := range privateHostDirs() {
+		if strings.HasPrefix(private+"/", src+"/") || strings.HasPrefix(src+"/", private+"/") {
+			return s, fmt.Errorf("share source %s would show the sandboxes' own files (%s), node credentials included", s.Source, private)
+		}
+	}
 	t := filepath.Clean(s.Target)
-	if !(strings.HasPrefix(t, "/workspace/") || strings.HasPrefix(t, "/reference/")) || t != s.Target {
-		return s, fmt.Errorf("share target %q must be a clean path under /workspace/ or /reference/", s.Target)
+	if t != s.Target || !(strings.HasPrefix(t, "/workspace/") || strings.HasPrefix(t, "/reference/") || (t == src && hostPathTarget(t))) {
+		return s, fmt.Errorf("share target %q must be a clean path under /workspace/ or /reference/, or the source's own path (outside the system directories)", s.Target)
 	}
 	for _, e := range existing {
 		if e.Target == t || strings.HasPrefix(t+"/", e.Target+"/") || strings.HasPrefix(e.Target+"/", t+"/") {
@@ -277,6 +292,26 @@ func CheckShare(s Share, existing []Share) (Share, error) {
 		}
 	}
 	return Share{Source: src, Target: t, ReadOnly: s.ReadOnly}, nil
+}
+
+// systemDirs are the guest system's own: a share at the host path cannot
+// land in them (or replace dev's home).
+var systemDirs = []string{"/bin", "/boot", "/dev", "/etc", "/home/dev", "/lib", "/lib32", "/lib64", "/libx32",
+	"/opt", "/proc", "/root", "/run", "/sbin", "/snap", "/srv", "/sys", "/tmp", "/usr", "/var"}
+
+// hostPathTarget: a share may also appear at its own host path (/home/me/proj,
+// /mnt/data), so absolute paths in files and environments keep working, as
+// long as that path is not one of the guest system's.
+func hostPathTarget(t string) bool {
+	if t == "/" || t == "/home" || t == "/mnt" || t == "/media" || t == "/workspace" || t == "/reference" {
+		return false
+	}
+	for _, d := range systemDirs {
+		if t == d || strings.HasPrefix(t, d+"/") {
+			return false
+		}
+	}
+	return true
 }
 
 func List() ([]string, error) {

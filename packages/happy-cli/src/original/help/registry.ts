@@ -202,6 +202,7 @@ const CAGE: Command = {
                 { flag: '--node', value: '<file>', complete: 'files', text: t('One mihomo node (chmod 600)', '一个 mihomo 节点文件（chmod 600）') },
                 { flag: '--exit-ip', value: '<ip>', text: t('The public IPv4 the providers must see', '模型厂商必须看到的公网 IPv4') },
                 { flag: '--share', value: 'SRC:TARGET[:ro]', text: t('Share a host directory (repeatable)', '共享宿主机目录（可多次）') },
+                { flag: '--from-host', value: 'PATH[:rw]', text: t('Lend a file or directory of your home, e.g. .ssh (repeatable)', '借用宿主 home 里的文件或目录，如 .ssh（可多次）') },
                 { flag: '--timezone', value: '<tz>', text: t("Time zone of the exit's region", '出口所在地的时区') },
                 { flag: '--locale', value: '<locale>', text: t("Locale of the exit's region", '出口所在地的 locale') },
                 { flag: '--hostname', value: '<name>', text: t('Hostname (the machine name in the app)', '主机名（App 里显示的机器名）') },
@@ -223,6 +224,14 @@ const CAGE: Command = {
                 { name: 'list', text: t('List shares', '列出共享') },
                 { name: 'add', args: '<src> <target>', argComplete: 'dirs', text: t('Add a share', '添加共享'), options: [{ flag: '--ro', text: t('Read-only', '只读') }] },
                 { name: 'rm', args: '<target>', text: t('Remove a share', '删除共享') },
+            ],
+        },
+        {
+            name: 'from-host', text: t('Files of your home lent to the sandbox (.ssh, .gitconfig; apply at the next up)', '借给沙盒的宿主 home 文件（.ssh、.gitconfig；下次 up 生效）'),
+            subcommands: [
+                { name: 'list', text: t('What is lent', '列出借用的') },
+                { name: 'add', args: '<path[:rw]>...', text: t('Lend, read-only unless :rw', '借用，默认只读，:rw 可写') },
+                { name: 'rm', args: '<path>...', text: t('Stop lending', '不再借用') },
             ],
         },
         {

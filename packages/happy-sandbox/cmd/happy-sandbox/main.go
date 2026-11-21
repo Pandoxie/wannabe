@@ -4,6 +4,7 @@
 //	happy-sandbox init --node FILE --exit-ip IP [--timezone TZ] [--locale L] [--share SRC:TARGET[:ro]]... [--name N]
 //	happy-sandbox up | down | status | identity | shell | exec -- CMD... | destroy --yes [--name N]
 //	happy-sandbox share list | add SRC TARGET [--ro] | rm TARGET [--name N]
+//	happy-sandbox from-host list | add PATH[:rw]... | rm PATH... [--name N]
 //	happy-sandbox list
 //
 //	happy-sandbox enable | disable [--name N]
@@ -48,7 +49,12 @@ const usage = `happy-sandbox — a Linux sandbox whose only way out is one VLESS
   happy-sandbox down      stop it (files and logins are kept)
   happy-sandbox share list | add SRC TARGET [--ro] | rm TARGET
                           shares apply at the next up (the container is recreated;
-                          the home is kept)
+                          the home is kept); TARGET under /workspace/ or /reference/,
+                          or SRC's own path (absolute paths keep working)
+  happy-sandbox from-host list | add PATH[:rw]... | rm PATH...
+                          lend files of your home to the sandbox's, at the same
+                          place, read-only unless :rw (.ssh .gitconfig .config/gh);
+                          its own Claude, Codex and happy logins stay its own
   happy-sandbox list      all sandboxes
   happy-sandbox check     can this host run sandboxes (and if not, why)
   happy-sandbox selinux-policy [--install]
@@ -143,6 +149,8 @@ func main() {
 		err = cmdExec(args)
 	case "share":
 		err = cmdShare(ctx, args)
+	case "from-host":
+		err = cmdFromHost(ctx, args)
 	case "list":
 		err = cmdList(ctx)
 	case "image":
@@ -312,8 +320,9 @@ func cmdInit(args []string) error {
 	hostname := fs.String("hostname", "", "the sandbox's hostname (shown as the machine in the Happy app)")
 	timezone := fs.String("timezone", sandbox.DefaultTimezone, "IANA time zone of the exit's region")
 	locale := fs.String("locale", sandbox.DefaultLocale, "locale (LANG) of the exit's region")
-	var shares shareList
-	fs.Var(&shares, "share", "SRC:TARGET[:ro], repeatable; TARGET under /workspace/ or /reference/")
+	var shares, fromHost shareList
+	fs.Var(&shares, "share", "SRC:TARGET[:ro], repeatable; TARGET under /workspace/ or /reference/, or SRC's own path")
+	fs.Var(&fromHost, "from-host", "PATH[:rw], repeatable; a file or directory of your home lent to the sandbox's (.ssh)")
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
@@ -332,7 +341,7 @@ func cmdInit(args []string) error {
 			host = h + "-" + name
 		}
 	}
-	c := sandbox.Config{Name: name, Image: *image, ExitIP: *exitIP}
+	c := sandbox.Config{Name: name, Image: *image, ExitIP: *exitIP, FromHost: fromHost}
 	for _, v := range shares {
 		s, err := parseShare(v)
 		if err != nil {
@@ -605,6 +614,9 @@ func cmdStatus(ctx context.Context, args []string) error {
 		}
 		fmt.Printf("  share:     %s -> %s (%s)\n", s.Source, s.Target, mode)
 	}
+	if len(c.FromHost) > 0 {
+		fmt.Printf("  from host: %s\n", strings.Join(c.FromHost, " "))
+	}
 	switch {
 	case !inst.UnitEnabled(ctx):
 		fmt.Println("  boot:      started by hand (happy-sandbox enable: start with the host)")
@@ -741,6 +753,81 @@ func cmdShare(ctx context.Context, args []string) error {
 	}
 	fmt.Println("Shares changed; they apply at the next `happy-sandbox up`. Your home is kept;")
 	fmt.Println("system changes outside them (apt packages) are reset when the container is recreated.")
+	return nil
+}
+
+// cmdFromHost edits from_host (fromhost.go): which files of the host user's
+// home the sandbox's home shows. Like shares, a change recreates the
+// container at the next up.
+func cmdFromHost(ctx context.Context, args []string) error {
+	inst, rest, err := load(args)
+	if err != nil {
+		return err
+	}
+	if len(rest) == 0 || rest[0] == "list" {
+		if len(inst.Config.FromHost) == 0 {
+			fmt.Println("nothing lent from the host (happy-sandbox from-host add .ssh)")
+		}
+		for _, v := range inst.Config.FromHost {
+			f, _ := sandbox.ParseFromHost(v)
+			mode, note := "ro", ""
+			if f.RW {
+				mode = "rw"
+			}
+			if _, err := os.Stat(filepath.Join(os.Getenv("HOME"), f.Path)); err != nil {
+				note = " (missing on the host: not lent)"
+			}
+			fmt.Printf("~/%s -> /home/dev/%s (%s)%s\n", f.Path, f.Path, mode, note)
+		}
+		return nil
+	}
+	if len(rest) < 2 || (rest[0] != "add" && rest[0] != "rm") {
+		return errors.New("from-host list | add PATH[:rw]... | rm PATH...")
+	}
+	next := append([]string{}, inst.Config.FromHost...)
+	for _, v := range rest[1:] {
+		f, err := sandbox.ParseFromHost(v)
+		if err != nil {
+			return err
+		}
+		kept := next[:0:0]
+		found := false
+		for _, e := range next {
+			if ef, _ := sandbox.ParseFromHost(e); ef.Path == f.Path {
+				found = true
+				continue
+			}
+			kept = append(kept, e)
+		}
+		if rest[0] == "rm" && !found {
+			return fmt.Errorf("~/%s is not lent", f.Path)
+		}
+		next = kept
+		if rest[0] == "add" {
+			if _, err := os.Stat(filepath.Join(os.Getenv("HOME"), f.Path)); err != nil {
+				return fmt.Errorf("~/%s: %v", f.Path, err)
+			}
+			next = append(next, f.String())
+		}
+	}
+	if _, err := sandbox.CheckFromHost(next); err != nil {
+		return err
+	}
+	if cs := inst.State(ctx); cs.Running {
+		return errors.New("stop the sandbox first (happy-sandbox down); from_host changes only while it is stopped")
+	}
+	inst.Config.FromHost = next
+	if err := inst.Save(); err != nil {
+		return err
+	}
+	if err := inst.Remove(ctx); err != nil {
+		return err
+	}
+	fmt.Println("Changed; it applies at the next `happy-sandbox up`. Your home is kept;")
+	fmt.Println("system changes outside it (apt packages) are reset when the container is recreated.")
+	if rest[0] == "add" {
+		fmt.Println("What is lent covers the sandbox's own file or directory of that name while lent.")
+	}
 	return nil
 }
 

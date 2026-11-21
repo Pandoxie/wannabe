@@ -182,7 +182,7 @@ happy-sandbox (Linux, rootless Podman) runs happy and the agents in a container 
 | `happy cage install` | Install happy-sandbox (from the release source happy came from) |
 | `happy cage update` | Update happy-sandbox |
 | `happy cage uninstall` | Remove happy-sandbox |
-| `happy cage init` | Create a sandbox<br>`--node <file>` One mihomo node (chmod 600)<br>`--exit-ip <ip>` The public IPv4 the providers must see<br>`--share SRC:TARGET[:ro]` Share a host directory (repeatable)<br>`--timezone <tz>` Time zone of the exit's region<br>`--locale <locale>` Locale of the exit's region<br>`--hostname <name>` Hostname (the machine name in the app)<br>`--image <image>` Image |
+| `happy cage init` | Create a sandbox<br>`--node <file>` One mihomo node (chmod 600)<br>`--exit-ip <ip>` The public IPv4 the providers must see<br>`--share SRC:TARGET[:ro]` Share a host directory (repeatable)<br>`--from-host PATH[:rw]` Lend a file or directory of your home, e.g. .ssh (repeatable)<br>`--timezone <tz>` Time zone of the exit's region<br>`--locale <locale>` Locale of the exit's region<br>`--hostname <name>` Hostname (the machine name in the app)<br>`--image <image>` Image |
 | `happy cage up` | Start it; the network opens once the exit is the IP |
 | `happy cage down` | Stop it (files and logins are kept) |
 | `happy cage shell` | A shell inside, as dev |
@@ -194,6 +194,9 @@ happy-sandbox (Linux, rootless Podman) runs happy and the agents in a container 
 | `happy cage share list` | List shares |
 | `happy cage share add <src> <target>` | Add a share<br>`--ro` Read-only |
 | `happy cage share rm <target>` | Remove a share |
+| `happy cage from-host list` | What is lent |
+| `happy cage from-host add <path[:rw]>...` | Lend, read-only unless :rw |
+| `happy cage from-host rm <path>...` | Stop lending |
 | `happy cage image load <file>` | Install an image (OCI archive); sandboxes move to it at their next up |
 | `happy cage image list` | Installed images |
 | `happy cage enable` | Start it with the host; restart its network if it fails |
