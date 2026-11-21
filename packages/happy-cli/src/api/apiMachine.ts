@@ -128,6 +128,12 @@ type MachineRpcHandlers = {
     requestShutdown: () => void;
 }
 
+/** HAPPY_MACHINE_NAME, trimmed and at most 64 characters; undefined when unset. */
+export function machineNameFromEnv(env: NodeJS.ProcessEnv = process.env): string | undefined {
+    const name = env.HAPPY_MACHINE_NAME?.trim().slice(0, 64);
+    return name ? name : undefined;
+}
+
 function requireNonEmptyString(value: unknown, name: string): string {
     if (typeof value !== 'string' || value.length === 0) {
         throw new Error(`${name} is required`);
@@ -154,6 +160,7 @@ export class ApiMachineClient {
     // in the background (each check runs the CLIs) and published as `cliAuth`.
     private cliAuth: CLIAuth | null = null;
     private publishedCliAuth: string | null = null;
+    private machineNameSent = false;
     private cliAuthCheckedAt = 0;
     private cliAuthChecking = false;
     private rpcHandlerManager: RpcHandlerManager;
@@ -628,7 +635,14 @@ export class ApiMachineClient {
         const authKey = this.cliAuth ? `${this.cliAuth.claude}/${this.cliAuth.codex}` : null;
         const cliAuthChanged = authKey !== this.publishedCliAuth;
 
-        if (cliAvailabilityChanged || resumeSupportChanged || cliVersionChanged || cliAuthChanged) {
+        // HAPPY_MACHINE_NAME (happy-sandbox sets it, e.g. ls5-1): the app's
+        // name for this machine, written once while it has none. A name given
+        // in the app stays.
+        const wantName = machineNameFromEnv();
+        const nameMissing = !!wantName && !this.machine.metadata?.displayName && !this.machineNameSent;
+
+        if (cliAvailabilityChanged || resumeSupportChanged || cliVersionChanged || cliAuthChanged || nameMissing) {
+            if (nameMissing) this.machineNameSent = true;
             this.lastKnownCLIAvailability = newAvailability;
             this.lastKnownResumeSupport = newResumeSupport;
             this.publishedCliAuth = authKey;
@@ -639,6 +653,7 @@ export class ApiMachineClient {
                 cliAvailability: newAvailability,
                 ...(cliAuth ? { cliAuth } : {}),
                 resumeSupport: { ...newResumeSupport, rpcAvailable: !!this.resumeSessionHandler },
+                ...(wantName && !metadata?.displayName ? { displayName: wantName } : {}),
             })).catch((err) => {
                 logger.debug('[API MACHINE] Failed to update machine capabilities:', err);
             });

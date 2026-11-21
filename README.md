@@ -109,13 +109,15 @@ Claude / Codex / happy 的登录是它自己的），用宿主镜像模式：`WA
 **第 4 步：登录**
 
 ```bash
-happy-sandbox shell     # 进入 sandbox
+shell1                  # 进入 1 号 sandbox（= happy-sandbox shell）
 happy auth login        # 用手机 App 扫码
 claude                  # 登录你的 Claude 账号
 codex login             # 可选
 ```
 
-手机 App 里会出现这台 sandbox，在上面开会话就行。也可以用网页：
+手机 App 里会出现这台 sandbox（名字是「宿主名-1」），在上面开会话就行。在宿主上也可以直接
+`claude1`、`codex1`、`happy1`：在当前目录进沙箱启动。再建一个沙箱（`happy-sandbox init ...`
+不写 `--name`）就是 2 号，命令是 `claude2` 等，可以登录另一个账号。也可以用网页：
 <https://pandoxie.github.io/wannabe>。
 
 ---

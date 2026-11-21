@@ -135,6 +135,8 @@ export type Session = {
  */
 export const MachineMetadataSchema = z.object({
   host: z.string(),
+  // The name the app shows (set there, or once from HAPPY_MACHINE_NAME).
+  displayName: z.string().optional(),
   platform: z.string(),
   happyCliVersion: z.string(),
   homeDir: z.string(),

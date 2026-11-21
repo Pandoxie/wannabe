@@ -31,7 +31,7 @@ func RunTAP(ctx context.Context, input io.Reader, output io.Writer, macs ...stri
 	}
 	if len(macs) == 1 {
 		mac, err := net.ParseMAC(macs[0])
-		if err != nil || len(mac) != 6 || mac[0]&3 != 2 {
+		if err != nil || len(mac) != 6 || mac[0]&1 != 0 {
 			return errors.New("invalid guest MAC")
 		}
 		guestMAC = mac.String()

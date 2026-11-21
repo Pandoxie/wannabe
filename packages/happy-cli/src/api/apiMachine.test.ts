@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiMachineClient } from './apiMachine';
+import { ApiMachineClient, machineNameFromEnv } from './apiMachine';
 import type { Machine } from './types';
 
 const {
@@ -260,5 +260,53 @@ describe('ApiMachineClient socket reconnection', () => {
         }));
 
         client.shutdown();
+    });
+    it('names the machine from HAPPY_MACHINE_NAME while the app has no name for it', () => {
+        vi.useFakeTimers();
+        vi.stubEnv('HAPPY_MACHINE_NAME', 'ls5-1');
+        mockSocket.emitWithAck.mockImplementation(() => new Promise(() => {}));
+        const machine = makeMachine();
+        const client = new ApiMachineClient('fake-token', machine);
+        const published: Array<Machine['metadata'] & { displayName?: string }> = [];
+        vi.spyOn(client, 'updateMachineMetadata').mockImplementation(async (handler) => {
+            published.push(handler(machine.metadata));
+        });
+        client.connect();
+
+        emitSocketEvent('connect');
+
+        expect(published.at(-1)).toEqual(expect.objectContaining({ displayName: 'ls5-1', host: 'localhost' }));
+        client.shutdown();
+        vi.unstubAllEnvs();
+    });
+
+    it('keeps a name given in the app over HAPPY_MACHINE_NAME', () => {
+        vi.useFakeTimers();
+        vi.stubEnv('HAPPY_MACHINE_NAME', 'ls5-1');
+        mockSocket.emitWithAck.mockImplementation(() => new Promise(() => {}));
+        const machine = makeMachine();
+        const stored = machine.metadata as Machine['metadata'] & { displayName?: string };
+        stored.displayName = 'Studio';
+        const client = new ApiMachineClient('fake-token', machine);
+        const published: Array<Machine['metadata'] & { displayName?: string }> = [];
+        vi.spyOn(client, 'updateMachineMetadata').mockImplementation(async (handler) => {
+            published.push(handler(stored));
+        });
+        client.connect();
+
+        emitSocketEvent('connect');
+
+        for (const m of published) expect(m.displayName).toBe('Studio');
+        client.shutdown();
+        vi.unstubAllEnvs();
+    });
+});
+
+describe('machineNameFromEnv', () => {
+    it('trims, caps at 64 characters and ignores an empty name', () => {
+        expect(machineNameFromEnv({ HAPPY_MACHINE_NAME: '  ls5-2 ' })).toBe('ls5-2');
+        expect(machineNameFromEnv({ HAPPY_MACHINE_NAME: '   ' })).toBeUndefined();
+        expect(machineNameFromEnv({})).toBeUndefined();
+        expect(machineNameFromEnv({ HAPPY_MACHINE_NAME: 'x'.repeat(80) })).toHaveLength(64);
     });
 });

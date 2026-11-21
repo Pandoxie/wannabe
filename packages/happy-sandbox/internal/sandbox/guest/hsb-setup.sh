@@ -84,23 +84,27 @@ done
 # running once logged in. In the container, so it is rewritten when a
 # container is recreated; the nightly line also comes from the installer.
 tab="/var/spool/cron/crontabs/$user"
-touch "$tab"
+# Edited in a new file that then replaces the old one: on the container's
+# overlay, root cannot open the user's existing crontab for writing.
+new="$(mktemp "$tab.XXXXXX")"
+[ ! -f "$tab" ] || cat "$tab" > "$new"
 # happy lives in the image's /home/dev (also with the host's home); without
 # it (an image built without happy) there is nothing to keep running. Both
 # lines run through /etc/happy-sandbox/run: the environment of every way in
 # (HAPPY_HOME_DIR and the other private tool state, access.env).
 dist=/home/dev/.happy-dist
-if [ -x "$dist/nightly-update.sh" ] && ! grep -q 'happy-dist nightly update' "$tab"; then
-    echo "0 3 * * * /etc/happy-sandbox/run $dist/nightly-update.sh # happy-dist nightly update" >> "$tab"
+if [ -x "$dist/nightly-update.sh" ] && ! grep -q 'happy-dist nightly update' "$new"; then
+    echo "0 3 * * * /etc/happy-sandbox/run $dist/nightly-update.sh # happy-dist nightly update" >> "$new"
 fi
 # Lines from before the run wrapper: replaced.
-sed -i '/happy-sandbox: keep the happy daemon running/,+2d' "$tab"
+sed -i '/happy-sandbox: keep the happy daemon running/,+2d' "$new"
 if [ -d "$dist" ]; then
-    cat >> "$tab" <<'CRON'
+    cat >> "$new" <<'CRON'
 # happy-sandbox: keep the happy daemon running (once logged in: happy auth login)
 @reboot /etc/happy-sandbox/run bash -c '[ -f "${HAPPY_HOME_DIR:-$HOME/.happy}/access.key" ] && happy daemon start' >/dev/null 2>&1
 */5 * * * * /etc/happy-sandbox/run bash -c '[ -f "${HAPPY_HOME_DIR:-$HOME/.happy}/access.key" ] && happy daemon start' >/dev/null 2>&1
 CRON
 fi
-chown "$user:crontab" "$tab"
-chmod 600 "$tab"
+chown "$user:crontab" "$new"
+chmod 600 "$new"
+mv -f "$new" "$tab"

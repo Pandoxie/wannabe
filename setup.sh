@@ -10,7 +10,7 @@
 # 环境变量（都可不设）：
 #   WANNABE_DIST     发布目录（默认 ~/wannabe-dist）
 #   HSB_BUILD        构建目录（默认 ~/build/happy-sandbox-v2）
-#   WANNABE_SANDBOX  sandbox 名字（默认 default）
+#   WANNABE_SANDBOX  sandbox 名字（默认 1；已有旧的 default 沙箱时用它）
 #   WANNABE_PROFILE  isolated（默认：沙箱有自己的 home）或 host（宿主镜像模式：
 #                    同一个用户、home、conda、/mnt，只有网络和身份是自己的）
 #   WANNABE_REBUILD=1  重新构建镜像
@@ -18,7 +18,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 DIST="${WANNABE_DIST:-$HOME/wannabe-dist}"
 B="${HSB_BUILD:-$HOME/build/happy-sandbox-v2}"
-NAME="${WANNABE_SANDBOX:-default}"
+NAME="${WANNABE_SANDBOX:-}"
+if [ -z "$NAME" ]; then
+    NAME=1
+    [ -f "$HOME/.happy-sandbox/1/config.json" ] || [ ! -f "$HOME/.happy-sandbox/default/config.json" ] || NAME=default
+fi
 PROFILE="${WANNABE_PROFILE:-isolated}"
 SB="$ROOT/packages/happy-sandbox"
 
@@ -109,7 +113,7 @@ fi
 step 6/7 "安装 happy-sandbox 和镜像（到 ~/.happy-sandbox 和你自己的 Podman）"
 bash "$DIST/sandbox/install.sh"
 hsb="$HOME/.happy-sandbox/bin/happy-sandbox"
-name_opt=(); [ "$NAME" = default ] || name_opt=(--name "$NAME")
+name_opt=(--name "$NAME")
 
 # ── 7. 建 sandbox 并启动 ───────────────────────────────────────────────────
 step 7/7 "创建并启动 sandbox「$NAME」"
@@ -120,16 +124,21 @@ else
 fi
 "$hsb" up "${name_opt[@]}"
 
+case "$NAME" in
+    [1-9]*) shell_cmd="shell$NAME" app="（App 里叫 $(hostname -s)-$NAME）" cmds="  命令：claude$NAME、codex$NAME（在当前目录进沙箱，full access）、happy$NAME（Happy 会话）、shell$NAME
+" ;;
+    *) shell_cmd="happy-sandbox shell ${name_opt[*]}" app="" cmds="" ;;
+esac
 cat <<EOF
 
 装好了。进 sandbox，登录一次：
 
-  happy-sandbox shell${name_opt[*]:+ ${name_opt[*]}}
+  $shell_cmd
   happy auth login      # 用手机上的官方 Happy App 扫码（或 web：https://pandoxie.github.io/wannabe）
   claude                # 登录你的 Claude 账号
   codex login           # 可选
 
-之后在手机或网页上就能看到这台 sandbox，在里面开 Claude / Codex 会话。
-  跟宿主一起启动：happy-sandbox enable      停止：happy-sandbox down
+之后在手机或网页上就能看到这台 sandbox$app，在里面开 Claude / Codex 会话。
+${cmds}  跟宿主一起启动：happy-sandbox enable ${name_opt[*]}      停止：happy-sandbox down ${name_opt[*]}
   发布目录：$DIST（宿主上也想用 happy：bash $DIST/install.sh）
 EOF

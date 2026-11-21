@@ -39,13 +39,15 @@ happy-sandbox init --node node.yaml --exit-ip 203.0.113.7 \
     --timezone America/Los_Angeles --locale en_US.UTF-8 \
     --share ~/proj:/workspace/proj --share ~/data:/reference/data:ro
 happy-sandbox up          # 起容器和网络；确认出口 IP 正确后才放行
-happy-sandbox shell       # 以 dev 用户进去
+shell1                    # 以 dev 用户进去（= happy-sandbox shell）
 ```
+
+不写 `--name` 时，`init` 用下一个空闲的序号（1、2、3…）当沙箱名，其他命令默认操作 1 号。
 
 第一次进去后：
 
 ```bash
-happy auth login          # 扫码；App 里会多出一台机器（沙箱的 hostname）
+happy auth login          # 扫码；App 里会多出一台机器，叫「宿主名-序号」（如 ls5-1）
 claude                    # 登录你自己的账号
 codex login
 ```
@@ -71,13 +73,38 @@ happy-sandbox identity              这台沙箱从里面看是什么样的机�
 happy-sandbox share list | add SRC [TARGET] [--ro] [--submounts] | rm TARGET
 happy-sandbox enable | disable      跟宿主一起启动；网络进程出错时自动重启
 happy-sandbox list
+happy-sandbox rename OLD NEW        改沙箱名（如 rename default 1），home、登录、身份都保留
+happy-sandbox links [--remove]      重新生成（或删除）编号沙箱的命令 claudeN 等
 happy-sandbox check                 宿主能不能跑沙箱（不能的话说明原因；也报告 GPU）
 happy-sandbox selinux-policy [--install]   CentOS/RHEL/Fedora：TAP 设备的那条 SELinux 规则
 happy-sandbox image list | load FILE
 happy-sandbox destroy --yes         删掉这个沙箱和它的整个目录
 happy-sandbox version
---name N                            操作 default 以外的沙箱（可以有多个，每个可以用不同的出口）
+--name N                            操作 1 号以外的沙箱（可以有多个，每个可以用不同的出口）；
+                                    没有 1 号时，默认是旧的 default
 ```
+
+## 编号沙箱和命令
+
+沙箱用数字命名：`~/.happy-sandbox/1`、`~/.happy-sandbox/2`……每个编号沙箱在 `~/.local/bin`
+里有四个命令，都在宿主的当前目录（对应的沙箱路径）里运行：
+
+| 命令 | 运行 |
+| --- | --- |
+| `claudeN` | `claude`，带 `access.tool_args`（full access） |
+| `codexN` | `codex`，同上 |
+| `happyN` | `happy --yolo`：一个 Happy 会话，手机 App 上也能看到、接管；`happyN codex` 是 Codex 会话 |
+| `shellN` | 一个 shell；`shellN CMD...` 运行 CMD |
+
+`HSB_SAFE=1` 时都不加 full access 参数。`init`、`rename` 会写这些命令，`destroy` 会删掉。
+同名的文件如果不是 happy-sandbox 写的（比如你自己的 `codex2`），不会覆盖，会提示你。
+
+每个沙箱的 Claude、Codex、happy 登录各自独立（宿主镜像模式下在 `state/` 里），可以登录
+不同的账号：`shell2` 进去后 `happy auth login`、`claude`、`codex login` 各一次。Happy App 里
+沙箱 N 显示为「宿主名-N」：daemon 在 App 里还没有这台机器的名字时写一次，你在 App 里改过的名字
+不会被改回。换一个名字：`happy-sandbox config set machine_name 名字 --name N`；不要：`none`。
+
+已有的 `default` 沙箱改成 1 号：`happy-sandbox rename default 1`（会停下再启动沙箱）。
 
 改配置（`config`、`share`）后执行 `happy-sandbox restart` 生效：容器按新配置重建，
 home、登录信息和数据都保留。
@@ -160,9 +187,9 @@ happy-sandbox config preset host && happy-sandbox restart
 
 ```bash
 cd /mnt/某个项目
-happy-sandbox here claude      # full access（tool_args），路径和宿主一样
-happy-sandbox here             # 一个 shell
-happy-sandbox here python train.py
+claude1                        # = happy-sandbox here claude：full access（tool_args），路径和宿主一样
+shell1                         # 一个 shell
+shell1 python train.py
 ```
 
 ## apt 包（重建后自动补回）

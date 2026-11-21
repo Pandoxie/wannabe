@@ -303,6 +303,10 @@ func (i *Instance) writeGuestFiles() error {
 		env.WriteString("export " + privateTools[t] + "=" + stateRoot + "/" + t + "\n")
 	}
 	env.WriteString("export HAPPY_SANDBOX=" + shellQuote(i.Config.Name) + "\n")
+	if n := i.HappyMachineName(); n != "" {
+		// The Happy app's name for this machine, while it has none (ls5-1).
+		env.WriteString("export HAPPY_MACHINE_NAME=" + shellQuote(n) + "\n")
+	}
 	if a.Resources.Ulimits != "podman" {
 		// runuser's PAM session drops the soft open-files limit to 1024; the
 		// container has the host's, as hard limit: take it back.

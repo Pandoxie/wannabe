@@ -5,7 +5,7 @@
 //	happy-sandbox up | down | restart | status | identity | shell | here [CMD...] | exec -- CMD... | destroy --yes [--name N]
 //	happy-sandbox config show | set KEY VALUE | unset KEY | edit | preset host|isolated [--name N]
 //	happy-sandbox share list | add SRC [TARGET] [--ro] [--submounts] | rm TARGET [--name N]
-//	happy-sandbox list
+//	happy-sandbox list | rename OLD NEW | links [--remove] [--name N]
 //
 //	happy-sandbox enable | disable [--name N]
 //
@@ -67,6 +67,13 @@ const usage = `happy-sandbox — a Linux sandbox whose only way out is one VLESS
                           host directories inside (TARGET defaults to SRC's path;
                           --submounts: every disk mounted below SRC too)
   happy-sandbox list      all sandboxes
+  happy-sandbox rename OLD NEW
+                          give a sandbox another name (e.g. rename default 1); home,
+                          logins and identity are kept
+  happy-sandbox links [--remove]
+                          the commands of numbered sandboxes, in ~/.local/bin: claudeN,
+                          codexN (full access, as here), happyN (a Happy session; happyN
+                          codex), shellN; init and rename write them, destroy removes them
   happy-sandbox check     can this host run sandboxes (and if not, why)
   happy-sandbox selinux-policy [--install]
                           SELinux hosts (CentOS, RHEL, Fedora): the one policy rule
@@ -85,7 +92,12 @@ const usage = `happy-sandbox — a Linux sandbox whose only way out is one VLESS
   Configuration changes (config, share) apply at the next up / restart: the
   container is recreated; the home, logins and data are kept.
 
-  --name N                another sandbox than "default"
+  Sandboxes are numbered: init without --name takes the next free number
+  (1, 2, …); the Happy app shows sandbox N as <host>-N (config set
+  machine_name NAME, or none).
+
+  --name N                another sandbox than 1 (or the older "default", while
+                          there is no 1)
 
   ~/.happy-sandbox/<name>/config.json also takes (README): host_ports
   (development: reach the host's 127.0.0.1:<port>); the older memory_bytes,
@@ -187,6 +199,10 @@ func main() {
 		err = cmdIdentity(args)
 	case "destroy":
 		err = cmdDestroy(ctx, args)
+	case "rename":
+		err = cmdRename(ctx, args)
+	case "links":
+		err = cmdLinks(args)
 	case "version", "--version":
 		fmt.Println("happy-sandbox", version)
 		if out, e := exec.Command(sandbox.Podman(), "image", "inspect", "--format", "{{.Id}} {{.Created}}", sandbox.DefaultImage).Output(); e == nil {
@@ -298,9 +314,9 @@ func installSELinuxPolicy() error {
 	return nil
 }
 
-// nameFlag pulls --name N out of args (anywhere), default "default".
+// nameFlag pulls --name N out of args (anywhere); "" when there is none.
 func nameFlag(args []string) (string, []string) {
-	name, rest := "default", []string{}
+	name, rest := "", []string{}
 	for k := 0; k < len(args); k++ {
 		if args[k] == "--name" && k+1 < len(args) {
 			name = args[k+1]
@@ -314,8 +330,12 @@ func nameFlag(args []string) (string, []string) {
 	return name, rest
 }
 
+// load: the sandbox --name names, else sandbox 1 (or the older "default").
 func load(args []string) (*sandbox.Instance, []string, error) {
 	name, rest := nameFlag(args)
+	if name == "" {
+		name = sandbox.DefaultName()
+	}
 	inst, err := sandbox.Load(name)
 	return inst, rest, err
 }
@@ -356,6 +376,9 @@ func addHostMounts(shares []sandbox.Share) []sandbox.Share {
 
 func cmdInit(args []string) error {
 	name, rest := nameFlag(args)
+	if name == "" {
+		name = sandbox.NextNumber()
+	}
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	node := fs.String("node", "", "mihomo node file (one node, chmod 600)")
 	exitIP := fs.String("exit-ip", "", "the public IPv4 the providers must see")
@@ -406,7 +429,127 @@ func cmdInit(args []string) error {
 	}
 	fmt.Printf("Created sandbox %q in %s (exit %s, access %s).\n", name, inst.Dir, c.ExitIP, c.Access.Describe())
 	printIdentity(inst)
-	fmt.Println("Next: happy-sandbox up")
+	writeLinks(name)
+	fmt.Println("Next: happy-sandbox up" + nameArg(name))
+	return nil
+}
+
+// nameArg is " --name N" for commands to print, "" for the default sandbox.
+func nameArg(name string) string {
+	if name == sandbox.DefaultName() {
+		return ""
+	}
+	return " --name " + name
+}
+
+// writeLinks writes a numbered sandbox's commands (claudeN, codexN, happyN,
+// shellN) and says what it did.
+func writeLinks(name string) {
+	written, skipped, err := sandbox.WriteLinks(name)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "commands of sandbox %s: %v\n", name, err)
+	}
+	if len(written) > 0 {
+		fmt.Printf("Commands: %s (in %s)\n", strings.Join(written, " "), sandbox.BinDir())
+		if !sandbox.BinDirInPath() {
+			fmt.Printf("  %s is not in PATH: add it (export PATH=\"%s:$PATH\" in ~/.bashrc)\n", sandbox.BinDir(), sandbox.BinDir())
+		}
+	}
+	for _, p := range skipped {
+		fmt.Printf("  %s is not happy-sandbox's: left as it is (remove it, then: happy-sandbox links --name %s)\n", p, name)
+	}
+}
+
+// cmdLinks: links [--name N] [--remove]. Without --name, every numbered
+// sandbox's commands.
+func cmdLinks(args []string) error {
+	name, rest := nameFlag(args)
+	remove := len(rest) == 1 && rest[0] == "--remove"
+	if len(rest) > 0 && !remove {
+		return errors.New("links [--name N] [--remove]")
+	}
+	names := []string{name}
+	if name == "" {
+		all, err := sandbox.List()
+		if err != nil {
+			return err
+		}
+		names = nil
+		for _, n := range all {
+			if sandbox.IsNumber(n) {
+				names = append(names, n)
+			}
+		}
+		if len(names) == 0 {
+			fmt.Println("No numbered sandboxes (1, 2, …): their commands are claude1, codex1, happy1, shell1.")
+			return nil
+		}
+	} else if _, err := sandbox.Load(name); err != nil && !remove {
+		return err
+	} else if !sandbox.IsNumber(name) {
+		return fmt.Errorf("sandbox %q has no commands: only numbered sandboxes (1, 2, …) do (happy-sandbox rename %s 1)", name, name)
+	}
+	for _, n := range names {
+		if remove {
+			removed, err := sandbox.RemoveLinks(n)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("sandbox %s: removed %s\n", n, orDash(strings.Join(removed, " ")))
+			continue
+		}
+		writeLinks(n)
+	}
+	return nil
+}
+
+// cmdRename: rename OLD NEW. Stops the sandbox, moves its directory, its
+// systemd unit and its commands; starts it again if it was running.
+func cmdRename(ctx context.Context, args []string) error {
+	if len(args) != 2 {
+		return errors.New("rename OLD NEW (e.g. rename default 1)")
+	}
+	inst, err := sandbox.Load(args[0])
+	if err != nil {
+		return err
+	}
+	if err := sandbox.ValidName(args[1]); err != nil {
+		return err
+	}
+	if _, err := os.Stat(sandbox.Dir(args[1])); err == nil {
+		return fmt.Errorf("%s already exists", sandbox.Dir(args[1]))
+	}
+	_, alive := inst.ReadStatus()
+	running := alive || inst.State(ctx).Running
+	enabled := inst.UnitEnabled(ctx)
+	if running {
+		if err := cmdDown(ctx, []string{"--name", args[0]}); err != nil {
+			return err
+		}
+	}
+	if enabled {
+		if err := inst.Disable(ctx); err != nil {
+			return err
+		}
+	}
+	n, err := inst.Rename(ctx, args[1])
+	if err != nil {
+		return err
+	}
+	if _, err := sandbox.RemoveLinks(args[0]); err != nil {
+		fmt.Fprintf(os.Stderr, "commands of %s: %v\n", args[0], err)
+	}
+	fmt.Printf("Sandbox %q is now %q (%s); home, logins and identity kept.\n", args[0], args[1], n.Dir)
+	writeLinks(args[1])
+	if enabled {
+		if err := n.Enable(ctx); err != nil {
+			return err
+		}
+		fmt.Printf("Enabled %s instead.\n", n.Unit())
+	}
+	if running || enabled {
+		return cmdUp(ctx, []string{"--name", args[1]})
+	}
 	return nil
 }
 
@@ -706,8 +849,18 @@ func cmdStatus(ctx context.Context, args []string) error {
 	default:
 		fmt.Println("  boot:      starts with the host")
 	}
+	if sandbox.IsNumber(c.Name) {
+		fmt.Printf("  commands:  claude%[1]s codex%[1]s happy%[1]s shell%[1]s (happy-sandbox links: write them again)\n", c.Name)
+	}
+	if n := inst.HappyMachineName(); n != "" {
+		fmt.Printf("  app name:  %s (set while the Happy app has no name for it)\n", n)
+	}
 	if cs.Running {
-		out, _ := inst.AsUser(ctx, `if ! command -v happy >/dev/null; then echo "not installed"; elif [ -f "${HAPPY_HOME_DIR:-$HOME/.happy}/access.key" ]; then happy daemon status 2>/dev/null | grep -m1 -iE "running|not running" || echo "logged in"; else echo "not logged in (happy-sandbox shell, then: happy auth login)"; fi`)
+		login := "happy-sandbox shell" + nameArg(c.Name)
+		if sandbox.IsNumber(c.Name) {
+			login = "shell" + c.Name
+		}
+		out, _ := inst.AsUser(ctx, `if ! command -v happy >/dev/null; then echo "not installed"; elif [ -f "${HAPPY_HOME_DIR:-$HOME/.happy}/access.key" ]; then happy daemon status 2>/dev/null | grep -m1 -iE "running|not running" || echo "logged in"; else echo "not logged in (`+login+`, then: happy auth login)"; fi`)
 		fmt.Printf("  happy:     %s\n", strings.TrimSpace(out))
 	}
 	return nil
@@ -1048,6 +1201,11 @@ func cmdDestroy(ctx context.Context, args []string) error {
 	stopNetwork(inst)
 	if err := inst.Destroy(ctx); err != nil {
 		return err
+	}
+	if removed, err := sandbox.RemoveLinks(inst.Config.Name); err != nil {
+		fmt.Fprintf(os.Stderr, "commands: %v\n", err)
+	} else if len(removed) > 0 {
+		fmt.Printf("Removed %s.\n", strings.Join(removed, " "))
 	}
 	fmt.Printf("Sandbox %q deleted.\n", inst.Config.Name)
 	return nil
