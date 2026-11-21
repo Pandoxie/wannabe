@@ -48,11 +48,6 @@ type Config struct {
 	GPU string `json:"gpu,omitempty"`
 	// Access: what the sandbox gets of the host (access.go).
 	Access Access `json:"access"`
-	// MachineName is the name the Happy app shows for this sandbox's happy
-	// (HAPPY_MACHINE_NAME, set once while the app has none). Absent: the host's
-	// short name and the number for a numbered sandbox (ls5-1), nothing for
-	// other names; "none": never set.
-	MachineName string `json:"machine_name,omitempty"`
 }
 
 // CheckLimits validates the resource limits (0 or absent: no limit).

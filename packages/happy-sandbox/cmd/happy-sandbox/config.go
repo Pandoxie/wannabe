@@ -59,9 +59,9 @@ func cmdConfig(ctx context.Context, args []string) error {
 	}
 	fmt.Printf("Saved (access %s).\n", inst.Config.Access.Describe())
 	if inst.State(ctx).Running {
-		fmt.Println("It applies at the next start: happy-sandbox restart (home, logins and data are kept).")
+		fmt.Printf("It applies at the next start: happy-sandbox restart %s (home, logins and data are kept).\n", inst.Config.Name)
 	} else {
-		fmt.Println("It applies at the next: happy-sandbox up")
+		fmt.Printf("It applies at the next: happy-sandbox up %s\n", inst.Config.Name)
 	}
 	return nil
 }
@@ -92,13 +92,13 @@ func decodeAndSave(inst *sandbox.Instance, m map[string]any) error {
 }
 
 // saveChecked validates and stores c. The name and the exit stay what init
-// made them (a new exit is a new sandbox: init --name).
+// made them (a new exit is a new sandbox: init).
 func saveChecked(inst *sandbox.Instance, c sandbox.Config) error {
 	if c.Name != inst.Config.Name {
 		return errors.New("config: the name cannot change")
 	}
 	if c.ExitIP != inst.Config.ExitIP {
-		return errors.New("config: exit_ip cannot change here (a new exit: happy-sandbox init --name N)")
+		return errors.New("config: exit_ip cannot change here (a new exit: a new sandbox, happy-sandbox init)")
 	}
 	if err := c.Access.Validate(); err != nil {
 		return err
@@ -211,7 +211,7 @@ func cmdPackages(ctx context.Context, args []string) error {
 	pkgs := inst.Config.Access.Packages
 	if len(rest) == 0 || rest[0] == "list" {
 		if len(pkgs) == 0 {
-			fmt.Println("no packages (happy-sandbox packages add NAME...)")
+			fmt.Printf("no packages (happy-sandbox packages %s add NAME...)\n", inst.Config.Name)
 		}
 		for _, p := range pkgs {
 			fmt.Println(p)

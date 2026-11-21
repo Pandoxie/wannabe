@@ -45,8 +45,8 @@ func selfCommand() string {
 
 func linkScript(tool, name string) string {
 	var b strings.Builder
-	b.WriteString("#!/bin/bash\n" + linkMark + name + " (happy-sandbox links --name " + name + " writes it again)\n")
-	here := "exec " + selfCommand() + " here --name " + name + " --"
+	b.WriteString("#!/bin/bash\n" + linkMark + name + " (happy-sandbox links " + name + " writes it again)\n")
+	here := "exec " + selfCommand() + " here " + name + " --"
 	switch tool {
 	case "shell":
 		b.WriteString("# A shell, or the command given, inside sandbox " + name + ", in this directory.\n")

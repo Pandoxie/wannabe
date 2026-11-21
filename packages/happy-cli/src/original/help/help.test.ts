@@ -45,7 +45,7 @@ describe('command table', () => {
 
     it('finds command paths, skipping options and their values', () => {
         expect(commandPath(['agent', 'send', 'abc', 'hi']).path).toEqual(['agent', 'send']);
-        expect(commandPath(['cage', '--name', 'up', 'status'])).toEqual({ path: ['cage', 'status'], end: 4 });
+        expect(commandPath(['cage', 'init', '--node', 'up', 'list'])).toEqual({ path: ['cage', 'init'], end: 2 });
         expect(commandPath(['--yolo']).path).toEqual([]);
         expect(commandPath(['cage', 'exec', '--', 'up']).path).toEqual(['cage', 'exec']);
         expect(findCommand(['agent', 'auth', 'login'])?.name).toBe('login');

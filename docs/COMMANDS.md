@@ -175,18 +175,18 @@ cage = a container with one fixed exit IP (wannabe); sandbox = OS limits on this
 
 A Podman sandbox whose only way out is one exit IP (happy-sandbox).
 
-happy-sandbox (Linux, rootless Podman) runs happy and the agents in a container whose only network is one VLESS exit, so the providers always see the same IP, time zone and locale. It has its own installer: `happy cage install`. Not the same as `happy sandbox`, which only limits what Claude/Codex may touch on this machine.
+happy-sandbox (Linux, rootless Podman) runs happy and the agents in a container whose only network is one VLESS exit, so the providers always see the same IP, time zone and locale. Sandboxes are numbered 1, 2, 3…: the number comes right after the command (`happy cage up 2`; none: sandbox 1). It has its own installer: `happy cage install`. Not the same as `happy sandbox`, which only limits what Claude/Codex may touch on this machine.
 
 | Command | What it does |
 | --- | --- |
 | `happy cage install` | Install happy-sandbox (from the release source happy came from) |
 | `happy cage update` | Update happy-sandbox |
 | `happy cage uninstall` | Remove happy-sandbox |
-| `happy cage init` | Create a sandbox<br>`--node <file>` One mihomo node (chmod 600)<br>`--exit-ip <ip>` The public IPv4 the providers must see<br>`--share SRC:TARGET[:ro]` Share a host directory (repeatable)<br>`--timezone <tz>` Time zone of the exit's region<br>`--locale <locale>` Locale of the exit's region<br>`--hostname <name>` Hostname (the machine name in the app)<br>`--image <image>` Image<br>`--profile isolated\|host` host: the host's user, home, /mnt, memory and GPU; only the network and identity differ |
-| `happy cage up` | Start it; the network opens once the exit is the IP |
-| `happy cage down` | Stop it (files and logins are kept) |
-| `happy cage restart` | Down, then up (applies configuration changes) |
-| `happy cage here [command...]` | Run a command (default: a shell) inside, in the host's current directory |
+| `happy cage init` | Create a sandbox<br>`--node <file>` One mihomo node (chmod 600)<br>`--exit-ip <ip>` The public IPv4 the providers must see<br>`--share SRC:TARGET[:ro]` Share a host directory (repeatable)<br>`--timezone <tz>` Time zone of the exit's region<br>`--locale <locale>` Locale of the exit's region<br>`--image <image>` Image<br>`--profile isolated\|host` host: the host's user, home, /mnt, memory and GPU; only the network and identity differ |
+| `happy cage up [N]` | Start it; the network opens once the exit is the IP |
+| `happy cage down [N]` | Stop it (files and logins are kept) |
+| `happy cage restart [N]` | Down, then up (applies configuration changes) |
+| `happy cage here [N] [command...]` | Run a command (default: a shell) inside, in the host's current directory |
 | `happy cage config show` | Show config.json |
 | `happy cage config set <key> <value>` | Set a key (dotted, e.g. access.resources.memory) |
 | `happy cage config unset <key>` | Remove a key |
@@ -195,12 +195,11 @@ happy-sandbox (Linux, rootless Podman) runs happy and the agents in a container 
 | `happy cage packages list` | List them |
 | `happy cage packages add <package>...` | Add packages |
 | `happy cage packages rm <package>...` | Remove packages |
-| `happy cage rename <old> <new>` | Give a sandbox another name (e.g. rename default 1) |
-| `happy cage links` | The commands of numbered sandboxes: claudeN, codexN, happyN, shellN<br>`--remove` Remove them |
-| `happy cage shell` | A shell inside, as dev |
-| `happy cage exec -- <command>...` | Run a command inside |
-| `happy cage status` | State, exit, network |
-| `happy cage identity` | What the sandbox looks like from inside |
+| `happy cage links [N]` | A sandbox's commands: claudeN, codexN, happyN, shellN<br>`--remove` Remove them |
+| `happy cage shell [N]` | A shell inside, as dev |
+| `happy cage exec [N] -- <command>...` | Run a command inside |
+| `happy cage status [N]` | State, exit, network |
+| `happy cage identity [N]` | What the sandbox looks like from inside |
 | `happy cage list` | All sandboxes |
 | `happy cage check` | Can this host run sandboxes (and if not, why) |
 | `happy cage share list` | List shares |
@@ -208,15 +207,11 @@ happy-sandbox (Linux, rootless Podman) runs happy and the agents in a container 
 | `happy cage share rm <target>` | Remove a share |
 | `happy cage image load <file>` | Install an image (OCI archive); sandboxes move to it at their next up |
 | `happy cage image list` | Installed images |
-| `happy cage enable` | Start it with the host; restart its network if it fails |
-| `happy cage disable` | Start it only by hand again (stops it now) |
+| `happy cage enable [N]` | Start it with the host; restart its network if it fails |
+| `happy cage disable [N]` | Start it only by hand again (stops it now) |
 | `happy cage selinux-policy` | SELinux hosts: the policy sandboxes need<br>`--install` Install it through sudo |
-| `happy cage destroy` | Delete the sandbox and its home<br>`--yes` Really delete |
+| `happy cage destroy [N]` | Delete the sandbox and its home<br>`--yes` Really delete |
 | `happy cage version` | Version of happy-sandbox |
-
-| Option | What it does |
-| --- | --- |
-| `--name <name>` | Another sandbox than 1 (or the older "default" while there is no 1) |
 
 ### `happy sandbox <command>`
 

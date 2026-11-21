@@ -1,13 +1,13 @@
 // happy-sandbox: a rootless container, like a small Linux server, whose only
-// way out is one VLESS exit locked to its IP.
+// way out is one VLESS exit locked to its IP. Sandboxes are numbered 1, 2, 3…;
+// the number comes right after the command (none: sandbox 1).
 //
-//	happy-sandbox init --node FILE --exit-ip IP [--profile isolated|host] [--timezone TZ] [--locale L] [--share SRC[:TARGET[:ro]]]... [--name N]
-//	happy-sandbox up | down | restart | status | identity | shell | here [CMD...] | exec -- CMD... | destroy --yes [--name N]
-//	happy-sandbox config show | set KEY VALUE | unset KEY | edit | preset host|isolated [--name N]
-//	happy-sandbox share list | add SRC [TARGET] [--ro] [--submounts] | rm TARGET [--name N]
-//	happy-sandbox list | rename OLD NEW | links [--remove] [--name N]
-//
-//	happy-sandbox enable | disable [--name N]
+//	happy-sandbox init --node FILE --exit-ip IP [--profile isolated|host] [--timezone TZ] [--locale L] [--share SRC[:TARGET[:ro]]]...
+//	happy-sandbox up | down | restart | status | identity | shell | here [CMD...] | exec -- CMD... | destroy --yes   [N]
+//	happy-sandbox config [N] show | set KEY VALUE | unset KEY | edit | preset host|isolated
+//	happy-sandbox share [N] list | add SRC [TARGET] [--ro] [--submounts] | rm TARGET
+//	happy-sandbox list | links [N] [--remove]
+//	happy-sandbox enable | disable [N]
 //
 // Internal: run (systemd's: container + network in the foreground),
 // stop-container, net-serve (the host network process), guest-tap (inside,
@@ -37,43 +37,46 @@ var version = "dev"
 
 const usage = `happy-sandbox — a Linux sandbox whose only way out is one VLESS exit
 
+  Sandboxes are numbered 1, 2, 3…: N right after a command picks one
+  (happy-sandbox up 2); without it, sandbox 1.
+
   happy-sandbox init --node FILE --exit-ip IP [--profile isolated|host]
                      [--share SRC[:TARGET[:ro]]]... [--timezone America/New_York]
-                     [--locale en_US.UTF-8] [--hostname H]
-                          create a sandbox (FILE: one mihomo node, chmod 600);
-                          time zone and locale should match the exit's region.
-                          --profile host: the host user, home, /mnt, memory and GPU;
-                          only the network (the exit) and the identity are its own
-  happy-sandbox up        start it; the network opens once the exit is IP
-  happy-sandbox restart   down, then up (applies configuration changes)
-  happy-sandbox shell     a shell inside, as the sandbox's user
-  happy-sandbox here [CMD...]
+                     [--locale en_US.UTF-8]
+                          create the next sandbox (the lowest free number; FILE: one
+                          mihomo node, chmod 600); time zone and locale should match
+                          the exit's region. --profile host: the host user, home,
+                          /mnt, memory and GPU; only the network (the exit) and the
+                          identity are its own
+  happy-sandbox up [N]    start it; the network opens once the exit is IP
+  happy-sandbox restart [N]
+                          down, then up (applies configuration changes)
+  happy-sandbox shell [N] a shell inside, as the sandbox's user
+  happy-sandbox here [N] [CMD...]
                           run CMD (default: a shell) inside, in the host's current
                           directory; claude / codex get access.tool_args (full access;
                           HSB_SAFE=1 leaves them out)
-  happy-sandbox exec -- CMD...
-  happy-sandbox status
-  happy-sandbox identity [set hostname NAME|random | set mac random | set timezone TZ | set locale L]
+  happy-sandbox exec [N] -- CMD...
+  happy-sandbox status [N]
+  happy-sandbox identity [N] [set hostname random | set mac random | set timezone TZ | set locale L]
                           what this sandbox looks like from inside (identity.json);
-                          host names are unique on this host
-  happy-sandbox down      stop it (files and logins are kept)
-  happy-sandbox config show | set KEY VALUE | unset KEY | edit | preset host|isolated
+                          host names are random and unique on this host
+  happy-sandbox down [N]  stop it (files and logins are kept)
+  happy-sandbox config [N] show | set KEY VALUE | unset KEY | edit | preset host|isolated
                           what the sandbox gets of the host (access: user, home, env,
                           resources, devices); e.g. config set access.resources.memory 64G
-  happy-sandbox packages list | add PKG... | rm PKG...
+  happy-sandbox packages [N] list | add PKG... | rm PKG...
                           apt packages the sandbox keeps: installed at every up when
                           missing (a recreated container starts from the image)
-  happy-sandbox share list | add SRC [TARGET] [--ro] [--submounts] | rm TARGET
+  happy-sandbox share [N] list | add SRC [TARGET] [--ro] [--submounts] | rm TARGET
                           host directories inside (TARGET defaults to SRC's path;
                           --submounts: every disk mounted below SRC too)
   happy-sandbox list      all sandboxes
-  happy-sandbox rename OLD NEW
-                          give a sandbox another name (e.g. rename default 1); home,
-                          logins and identity are kept
-  happy-sandbox links [--remove]
-                          the commands of numbered sandboxes, in ~/.local/bin: claudeN,
-                          codexN (full access, as here), happyN (a Happy session; happyN
-                          codex), shellN; init and rename write them, destroy removes them
+  happy-sandbox links [N] [--remove]
+                          the commands of sandbox N (all, without N) in ~/.local/bin:
+                          claudeN, codexN (full access, as here), happyN (a Happy
+                          session; happyN codex), shellN; init writes them, destroy
+                          removes them
   happy-sandbox check     can this host run sandboxes (and if not, why)
   happy-sandbox selinux-policy [--install]
                           SELinux hosts (CentOS, RHEL, Fedora): the one policy rule
@@ -82,24 +85,24 @@ const usage = `happy-sandbox — a Linux sandbox whose only way out is one VLESS
   happy-sandbox image load FILE | list
                           install the image (an OCI archive); sandboxes move to it
                           at their next up (home kept)
-  happy-sandbox enable    start it with the host, and restart its network if it fails
-  happy-sandbox disable   start it only by hand again (stops it now)
-  happy-sandbox destroy --yes
-                          delete the sandbox and everything in ~/.happy-sandbox/<name>
+  happy-sandbox enable [N]
+                          start it with the host, and restart its network if it fails
+  happy-sandbox disable [N]
+                          start it only by hand again (stops it now)
+  happy-sandbox destroy [N] --yes
+                          delete the sandbox and everything in ~/.happy-sandbox/N; the
+                          next init takes its number again
 
   happy-sandbox version
 
   Configuration changes (config, share) apply at the next up / restart: the
   container is recreated; the home, logins and data are kept.
 
-  Sandboxes are numbered: init without --name takes the next free number
-  (1, 2, …); the Happy app shows sandbox N as <host>-N (config set
-  machine_name NAME, or none).
+  The Happy app shows sandbox N as <host>-N (set once, while the app has no
+  name for it). Sandboxes from before numbering (default, …) become the next
+  free numbers by themselves; home, logins and identity are kept.
 
-  --name N                another sandbox than 1 (or the older "default", while
-                          there is no 1)
-
-  ~/.happy-sandbox/<name>/config.json also takes (README): host_ports
+  ~/.happy-sandbox/N/config.json also takes (README): host_ports
   (development: reach the host's 127.0.0.1:<port>); the older memory_bytes,
   cpus, pids_limit and gpu still apply where access says nothing.
   Packages you apt install come back after a recreation by themselves.
@@ -123,6 +126,12 @@ func main() {
 	defer stop()
 	cmd, args := os.Args[1], os.Args[2:]
 	var err error
+	if userCommands[cmd] {
+		if err := migrateLegacy(ctx); err != nil {
+			fmt.Fprintln(os.Stderr, "happy-sandbox: moving to numbered sandboxes:", err)
+			os.Exit(1)
+		}
+	}
 	switch cmd {
 	case "guest-tap":
 		// Before 0.3.0 the link was this, over a podman exec pipe; kept for
@@ -143,7 +152,7 @@ func main() {
 		// systemd's ExecStop: the network first (it exits cleanly on SIGTERM),
 		// then the container.
 		var inst *sandbox.Instance
-		if inst, _, err = load(args); err == nil {
+		if inst, err = loadInternal(args); err == nil {
 			stopNetwork(inst)
 			err = inst.Stop(context.Background())
 		}
@@ -199,8 +208,6 @@ func main() {
 		err = cmdIdentity(args)
 	case "destroy":
 		err = cmdDestroy(ctx, args)
-	case "rename":
-		err = cmdRename(ctx, args)
 	case "links":
 		err = cmdLinks(args)
 	case "version", "--version":
@@ -314,30 +321,121 @@ func installSELinuxPolicy() error {
 	return nil
 }
 
-// nameFlag pulls --name N out of args (anywhere); "" when there is none.
-func nameFlag(args []string) (string, []string) {
-	name, rest := "", []string{}
-	for k := 0; k < len(args); k++ {
-		if args[k] == "--name" && k+1 < len(args) {
-			name = args[k+1]
-			k++
-		} else if strings.HasPrefix(args[k], "--name=") {
-			name = strings.TrimPrefix(args[k], "--name=")
-		} else {
-			rest = append(rest, args[k])
+// numberArg takes the sandbox number from right after the subcommand
+// (happy-sandbox up 2); given is false when there is none. There are no
+// other names: --name is refused.
+func numberArg(args []string) (name string, given bool, rest []string, err error) {
+	for _, a := range args {
+		if a == "--" {
+			break
+		}
+		if a == "--name" || strings.HasPrefix(a, "--name=") {
+			return "", false, nil, errors.New("there is no --name: sandboxes are numbered, the number comes right after the command (happy-sandbox up 2)")
 		}
 	}
-	return name, rest
+	if len(args) > 0 && allDigits(args[0]) {
+		if !sandbox.IsNumber(args[0]) {
+			return "", false, nil, fmt.Errorf("sandbox %q: sandboxes are numbered 1, 2, 3…", args[0])
+		}
+		return args[0], true, args[1:], nil
+	}
+	return "1", false, args, nil
 }
 
-// load: the sandbox --name names, else sandbox 1 (or the older "default").
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// load: the sandbox numbered right after the command, else sandbox 1.
 func load(args []string) (*sandbox.Instance, []string, error) {
-	name, rest := nameFlag(args)
-	if name == "" {
-		name = sandbox.DefaultName()
+	name, _, rest, err := numberArg(args)
+	if err != nil {
+		return nil, nil, err
 	}
 	inst, err := sandbox.Load(name)
 	return inst, rest, err
+}
+
+// loadInternal is load for the commands systemd and happy-sandbox itself
+// run (run, stop-container, net-serve): they also take the "--name NAME" of
+// units and network processes from before numbering.
+func loadInternal(args []string) (*sandbox.Instance, error) {
+	for k := 0; k+1 < len(args); k++ {
+		if args[k] == "--name" {
+			return sandbox.Load(args[k+1])
+		}
+	}
+	inst, _, err := load(args)
+	return inst, err
+}
+
+// userCommands are the ones that first move sandboxes from before numbering
+// (default, …) to the next free numbers.
+var userCommands = map[string]bool{
+	"init": true, "up": true, "down": true, "restart": true, "status": true, "shell": true, "exec": true,
+	"here": true, "config": true, "packages": true, "share": true, "list": true, "identity": true,
+	"enable": true, "disable": true, "destroy": true, "links": true,
+}
+
+// migrateLegacy gives every sandbox with a name (default, …) the next free
+// number, in name order: it stops it, moves its directory, systemd unit and
+// commands, and starts it again if it was running. Home, logins and
+// identity stay.
+func migrateLegacy(ctx context.Context) error {
+	names, err := sandbox.List()
+	if err != nil {
+		return err
+	}
+	for _, old := range names {
+		if sandbox.IsNumber(old) {
+			continue
+		}
+		inst, err := sandbox.Load(old)
+		if err != nil {
+			return err
+		}
+		num := sandbox.NextNumber()
+		fmt.Printf("Sandbox %q becomes sandbox %s (sandboxes are numbered now; home, logins and identity are kept).\n", old, num)
+		_, alive := inst.ReadStatus()
+		running := alive || inst.State(ctx).Running
+		enabled := inst.UnitEnabled(ctx)
+		if enabled {
+			if err := inst.UnitStop(ctx); err != nil {
+				return err
+			}
+			if err := inst.Disable(ctx); err != nil {
+				return err
+			}
+		}
+		stopNetwork(inst)
+		if err := inst.Stop(ctx); err != nil {
+			return err
+		}
+		n, err := inst.Rename(ctx, num)
+		if err != nil {
+			return err
+		}
+		writeLinks(num)
+		if enabled {
+			if err := n.Enable(ctx); err != nil {
+				return err
+			}
+		}
+		if running || enabled {
+			if err := cmdUp(ctx, []string{num}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 type shareList []string
@@ -374,16 +472,18 @@ func addHostMounts(shares []sandbox.Share) []sandbox.Share {
 	return shares
 }
 
+// cmdInit makes the next sandbox: the lowest free number.
 func cmdInit(args []string) error {
-	name, rest := nameFlag(args)
-	if name == "" {
-		name = sandbox.NextNumber()
+	if _, given, _, err := numberArg(args); err != nil {
+		return err
+	} else if given {
+		return errors.New("init takes no number: the new sandbox gets the next free one")
 	}
+	name, rest := sandbox.NextNumber(), args
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	node := fs.String("node", "", "mihomo node file (one node, chmod 600)")
 	exitIP := fs.String("exit-ip", "", "the public IPv4 the providers must see")
 	image := fs.String("image", sandbox.DefaultImage, "image")
-	hostname := fs.String("hostname", "", "the sandbox's hostname (shown as the machine in the Happy app; default: a random one like ws-7k3q2m, unique on this host)")
 	timezone := fs.String("timezone", sandbox.DefaultTimezone, "IANA time zone of the exit's region")
 	locale := fs.String("locale", sandbox.DefaultLocale, "locale (LANG) of the exit's region")
 	profile := fs.String("profile", "isolated", "isolated, or host: the host user, home, /mnt, memory and GPU (only the network and identity differ)")
@@ -399,14 +499,9 @@ func cmdInit(args []string) error {
 		printChecks(context.Background())
 		return fmt.Errorf("this host cannot run a sandbox yet (%d of the checks above)", len(bad))
 	}
-	// The host name: random and like any workstation's unless given; never
-	// one the host or another sandbox here already has.
-	host := *hostname
-	if host == "" {
-		host = sandbox.UniqueHostname(name)
-	} else if err := sandbox.CheckHostnameFree(host, name); err != nil {
-		return err
-	}
+	// The host name: random and like any workstation's; never one the host
+	// or another sandbox here already has.
+	host := sandbox.UniqueHostname(name)
 	c := sandbox.Config{Name: name, Image: *image, ExitIP: *exitIP}
 	for _, v := range shares {
 		s, err := parseShare(v)
@@ -430,16 +525,8 @@ func cmdInit(args []string) error {
 	fmt.Printf("Created sandbox %q in %s (exit %s, access %s).\n", name, inst.Dir, c.ExitIP, c.Access.Describe())
 	printIdentity(inst)
 	writeLinks(name)
-	fmt.Println("Next: happy-sandbox up" + nameArg(name))
+	fmt.Println("Next: happy-sandbox up " + name)
 	return nil
-}
-
-// nameArg is " --name N" for commands to print, "" for the default sandbox.
-func nameArg(name string) string {
-	if name == sandbox.DefaultName() {
-		return ""
-	}
-	return " --name " + name
 }
 
 // writeLinks writes a numbered sandbox's commands (claudeN, codexN, happyN,
@@ -456,20 +543,22 @@ func writeLinks(name string) {
 		}
 	}
 	for _, p := range skipped {
-		fmt.Printf("  %s is not happy-sandbox's: left as it is (remove it, then: happy-sandbox links --name %s)\n", p, name)
+		fmt.Printf("  %s is not happy-sandbox's: left as it is (remove it, then: happy-sandbox links %s)\n", p, name)
 	}
 }
 
-// cmdLinks: links [--name N] [--remove]. Without --name, every numbered
-// sandbox's commands.
+// cmdLinks: links [N] [--remove]. Without a number, every sandbox's commands.
 func cmdLinks(args []string) error {
-	name, rest := nameFlag(args)
+	name, given, rest, err := numberArg(args)
+	if err != nil {
+		return err
+	}
 	remove := len(rest) == 1 && rest[0] == "--remove"
 	if len(rest) > 0 && !remove {
-		return errors.New("links [--name N] [--remove]")
+		return errors.New("links [N] [--remove]")
 	}
 	names := []string{name}
-	if name == "" {
+	if !given {
 		all, err := sandbox.List()
 		if err != nil {
 			return err
@@ -481,13 +570,11 @@ func cmdLinks(args []string) error {
 			}
 		}
 		if len(names) == 0 {
-			fmt.Println("No numbered sandboxes (1, 2, …): their commands are claude1, codex1, happy1, shell1.")
+			fmt.Println("No sandboxes yet: happy-sandbox init")
 			return nil
 		}
 	} else if _, err := sandbox.Load(name); err != nil && !remove {
 		return err
-	} else if !sandbox.IsNumber(name) {
-		return fmt.Errorf("sandbox %q has no commands: only numbered sandboxes (1, 2, …) do (happy-sandbox rename %s 1)", name, name)
 	}
 	for _, n := range names {
 		if remove {
@@ -503,56 +590,6 @@ func cmdLinks(args []string) error {
 	return nil
 }
 
-// cmdRename: rename OLD NEW. Stops the sandbox, moves its directory, its
-// systemd unit and its commands; starts it again if it was running.
-func cmdRename(ctx context.Context, args []string) error {
-	if len(args) != 2 {
-		return errors.New("rename OLD NEW (e.g. rename default 1)")
-	}
-	inst, err := sandbox.Load(args[0])
-	if err != nil {
-		return err
-	}
-	if err := sandbox.ValidName(args[1]); err != nil {
-		return err
-	}
-	if _, err := os.Stat(sandbox.Dir(args[1])); err == nil {
-		return fmt.Errorf("%s already exists", sandbox.Dir(args[1]))
-	}
-	_, alive := inst.ReadStatus()
-	running := alive || inst.State(ctx).Running
-	enabled := inst.UnitEnabled(ctx)
-	if running {
-		if err := cmdDown(ctx, []string{"--name", args[0]}); err != nil {
-			return err
-		}
-	}
-	if enabled {
-		if err := inst.Disable(ctx); err != nil {
-			return err
-		}
-	}
-	n, err := inst.Rename(ctx, args[1])
-	if err != nil {
-		return err
-	}
-	if _, err := sandbox.RemoveLinks(args[0]); err != nil {
-		fmt.Fprintf(os.Stderr, "commands of %s: %v\n", args[0], err)
-	}
-	fmt.Printf("Sandbox %q is now %q (%s); home, logins and identity kept.\n", args[0], args[1], n.Dir)
-	writeLinks(args[1])
-	if enabled {
-		if err := n.Enable(ctx); err != nil {
-			return err
-		}
-		fmt.Printf("Enabled %s instead.\n", n.Unit())
-	}
-	if running || enabled {
-		return cmdUp(ctx, []string{"--name", args[1]})
-	}
-	return nil
-}
-
 // startNetwork runs `happy-sandbox net-serve` detached, logging to run/net.log.
 func startNetwork(inst *sandbox.Instance) error {
 	self, err := os.Executable()
@@ -564,7 +601,7 @@ func startNetwork(inst *sandbox.Instance) error {
 		return err
 	}
 	defer logf.Close()
-	cmd := exec.Command(self, "net-serve", "--name", inst.Config.Name)
+	cmd := exec.Command(self, "net-serve", inst.Config.Name)
 	cmd.Stdout, cmd.Stderr = logf, logf
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
@@ -700,7 +737,7 @@ func waitOpen(inst *sandbox.Instance, d time.Duration) bool {
 // cmdRun is systemd's (happy-sandbox@NAME.service): the container, then the
 // network in the foreground. A failure exits non-zero and systemd restarts it.
 func cmdRun(ctx context.Context, args []string) error {
-	inst, _, err := load(args)
+	inst, err := loadInternal(args)
 	if err != nil {
 		return err
 	}
@@ -711,7 +748,7 @@ func cmdRun(ctx context.Context, args []string) error {
 		return err
 	}
 	if st, alive := inst.ReadStatus(); alive && st.Pid != os.Getpid() {
-		return fmt.Errorf("its network already runs (pid %d), started by hand: happy-sandbox down first", st.Pid)
+		return fmt.Errorf("its network already runs (pid %d), started by hand: happy-sandbox down %s first", st.Pid, inst.Config.Name)
 	}
 	if err := prepare(ctx, inst); err != nil {
 		return err
@@ -761,7 +798,7 @@ func cmdDisable(ctx context.Context, args []string) error {
 	if err := inst.Disable(ctx); err != nil {
 		return err
 	}
-	fmt.Println("Disabled: it no longer starts with the host, and it is stopped. Start it by hand: happy-sandbox up")
+	fmt.Printf("Disabled: it no longer starts with the host, and it is stopped. Start it by hand: happy-sandbox up %s\n", inst.Config.Name)
 	return nil
 }
 
@@ -779,9 +816,9 @@ func cmdDown(ctx context.Context, args []string) error {
 	if err := inst.Stop(ctx); err != nil {
 		return err
 	}
-	fmt.Println("Stopped. Files and logins are kept; start again: happy-sandbox up")
+	fmt.Printf("Stopped. Files and logins are kept; start again: happy-sandbox up %s\n", inst.Config.Name)
 	if inst.UnitEnabled(ctx) {
-		fmt.Println("(It is enabled: it starts again with the host. Not wanted: happy-sandbox disable)")
+		fmt.Printf("(It is enabled: it starts again with the host. Not wanted: happy-sandbox disable %s)\n", inst.Config.Name)
 	}
 	return nil
 }
@@ -843,23 +880,18 @@ func cmdStatus(ctx context.Context, args []string) error {
 	}
 	switch {
 	case !inst.UnitEnabled(ctx):
-		fmt.Println("  boot:      started by hand (happy-sandbox enable: start with the host)")
+		fmt.Printf("  boot:      started by hand (happy-sandbox enable %s: start with the host)\n", c.Name)
 	case !sandbox.Lingering():
 		fmt.Printf("  boot:      enabled, but only while you are logged in: sudo loginctl enable-linger %s\n", os.Getenv("USER"))
 	default:
 		fmt.Println("  boot:      starts with the host")
 	}
-	if sandbox.IsNumber(c.Name) {
-		fmt.Printf("  commands:  claude%[1]s codex%[1]s happy%[1]s shell%[1]s (happy-sandbox links: write them again)\n", c.Name)
-	}
+	fmt.Printf("  commands:  claude%[1]s codex%[1]s happy%[1]s shell%[1]s (happy-sandbox links: write them again)\n", c.Name)
 	if n := inst.HappyMachineName(); n != "" {
 		fmt.Printf("  app name:  %s (set while the Happy app has no name for it)\n", n)
 	}
 	if cs.Running {
-		login := "happy-sandbox shell" + nameArg(c.Name)
-		if sandbox.IsNumber(c.Name) {
-			login = "shell" + c.Name
-		}
+		login := "shell" + c.Name
 		out, _ := inst.AsUser(ctx, `if ! command -v happy >/dev/null; then echo "not installed"; elif [ -f "${HAPPY_HOME_DIR:-$HOME/.happy}/access.key" ]; then happy daemon status 2>/dev/null | grep -m1 -iE "running|not running" || echo "logged in"; else echo "not logged in (`+login+`, then: happy auth login)"; fi`)
 		fmt.Printf("  happy:     %s\n", strings.TrimSpace(out))
 	}
@@ -907,7 +939,7 @@ func cmdShell(args []string) error {
 		return err
 	}
 	if !inst.State(context.Background()).Running {
-		return errors.New("the sandbox is not running: happy-sandbox up")
+		return fmt.Errorf("sandbox %s is not running: happy-sandbox up %s", inst.Config.Name, inst.Config.Name)
 	}
 	return execInto(inst, nil, "", true)
 }
@@ -924,7 +956,7 @@ func cmdExec(args []string) error {
 		return errors.New("exec needs a command: happy-sandbox exec -- CMD...")
 	}
 	if !inst.State(context.Background()).Running {
-		return errors.New("the sandbox is not running: happy-sandbox up")
+		return fmt.Errorf("sandbox %s is not running: happy-sandbox up %s", inst.Config.Name, inst.Config.Name)
 	}
 	return execInto(inst, rest, "", false)
 }
@@ -955,11 +987,11 @@ func cmdHere(ctx context.Context, args []string) error {
 		if _, err := sandbox.CheckShare(sandbox.Share{Source: cwd}, nil); err != nil {
 			return fmt.Errorf("%s is not visible in sandbox %q, and cannot be shared at its own path (%v); run from a shared directory", cwd, inst.Config.Name, err)
 		}
-		return fmt.Errorf("%s is not visible in sandbox %q: happy-sandbox share add %s --name %s, then happy-sandbox restart --name %s", cwd, inst.Config.Name, cwd, inst.Config.Name, inst.Config.Name)
+		return fmt.Errorf("%s is not visible in sandbox %q: happy-sandbox share %s add %s, then happy-sandbox restart %s", cwd, inst.Config.Name, inst.Config.Name, cwd, inst.Config.Name)
 	}
 	if _, alive := inst.ReadStatus(); !alive || !inst.State(ctx).Running {
 		fmt.Fprintf(os.Stderr, "Starting sandbox %q…\n", inst.Config.Name)
-		if err := cmdUp(ctx, []string{"--name", inst.Config.Name}); err != nil {
+		if err := cmdUp(ctx, []string{inst.Config.Name}); err != nil {
 			return err
 		}
 	}
@@ -1043,9 +1075,9 @@ func cmdShare(ctx context.Context, args []string) error {
 		return err
 	}
 	if inst.State(ctx).Running {
-		fmt.Println("Shares changed; apply them with: happy-sandbox restart (home, logins and data are kept).")
+		fmt.Printf("Shares changed; apply them with: happy-sandbox restart %s (home, logins and data are kept).\n", inst.Config.Name)
 	} else {
-		fmt.Println("Shares changed; they apply at the next `happy-sandbox up` (home, logins and data are kept).")
+		fmt.Printf("Shares changed; they apply at the next `happy-sandbox up %s` (home, logins and data are kept).\n", inst.Config.Name)
 	}
 	return nil
 }
@@ -1125,11 +1157,11 @@ func cmdIdentity(args []string) error {
 	return nil
 }
 
-// cmdIdentitySet: identity set hostname NAME|random, timezone TZ, locale L.
+// cmdIdentitySet: identity set hostname random, mac random, timezone TZ, locale L.
 // identity.json changes; the next up recreates the container with it.
 func cmdIdentitySet(inst *sandbox.Instance, rest []string) error {
 	if len(rest) != 3 || rest[0] != "set" {
-		return errors.New("identity [set hostname NAME|random | set mac random | set timezone TZ | set locale L]")
+		return errors.New("identity [N] [set hostname random | set mac random | set timezone TZ | set locale L]")
 	}
 	if inst.Identity == nil {
 		return errors.New("this sandbox has no identity.json")
@@ -1137,12 +1169,10 @@ func cmdIdentitySet(inst *sandbox.Instance, rest []string) error {
 	id := *inst.Identity
 	switch key, val := rest[1], rest[2]; key {
 	case "hostname":
-		if val == "random" {
-			val = sandbox.UniqueHostname(inst.Config.Name)
-		} else if err := sandbox.CheckHostnameFree(val, inst.Config.Name); err != nil {
-			return err
+		if val != "random" {
+			return errors.New("identity set hostname random: a new random host name (names are not chosen)")
 		}
-		id.Hostname = val
+		id.Hostname = sandbox.UniqueHostname(inst.Config.Name)
 	case "mac":
 		if val != "random" {
 			return errors.New("identity set mac random: a new NIC vendor's MAC (and gateway MAC)")
@@ -1161,7 +1191,7 @@ func cmdIdentitySet(inst *sandbox.Instance, rest []string) error {
 	}
 	inst.Identity = &id
 	printIdentity(inst)
-	fmt.Println("\nSaved. It applies at the next start: happy-sandbox restart (home, logins and data are kept).")
+	fmt.Printf("\nSaved. It applies at the next start: happy-sandbox restart %s (home, logins and data are kept).\n", inst.Config.Name)
 	return nil
 }
 
@@ -1188,7 +1218,7 @@ func cmdDestroy(ctx context.Context, args []string) error {
 		return err
 	}
 	if len(rest) == 0 || rest[0] != "--yes" {
-		return fmt.Errorf("this deletes sandbox %q for good: its container and %s (home, logins, identity). Run: happy-sandbox destroy --yes --name %s", inst.Config.Name, inst.Dir, inst.Config.Name)
+		return fmt.Errorf("this deletes sandbox %q for good: its container and %s (home, logins, identity). Run: happy-sandbox destroy %s --yes", inst.Config.Name, inst.Dir, inst.Config.Name)
 	}
 	if inst.UnitEnabled(ctx) {
 		if err := inst.UnitStop(ctx); err != nil {
@@ -1212,7 +1242,7 @@ func cmdDestroy(ctx context.Context, args []string) error {
 }
 
 func netServe(ctx context.Context, args []string) error {
-	inst, _, err := load(args)
+	inst, err := loadInternal(args)
 	if err != nil {
 		return err
 	}

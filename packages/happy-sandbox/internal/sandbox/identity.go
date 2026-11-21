@@ -123,7 +123,7 @@ func UniqueHostname(self string) string {
 // CheckHostnameFree: the sandbox's host name must be its own on this host.
 func CheckHostnameFree(hostname, self string) error {
 	if who := HostnameTaken(hostname, self); who != "" {
-		return fmt.Errorf("host name %q is already %s's: every sandbox on a host needs its own (happy-sandbox identity set hostname NAME --name %s)", hostname, who, orDefault(self, "N"))
+		return fmt.Errorf("host name %q is already %s's: every sandbox on a host needs its own (happy-sandbox identity %s set hostname random)", hostname, who, orDefault(self, "N"))
 	}
 	return nil
 }

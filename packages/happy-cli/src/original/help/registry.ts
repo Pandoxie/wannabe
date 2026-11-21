@@ -181,17 +181,15 @@ const AGENT: Command = {
 
 // ─── happy cage (happy-sandbox) ───
 
-const sandboxName: Option = { flag: '--name', value: '<name>', complete: 'sandboxes', text: t('Another sandbox than 1 (or the older "default" while there is no 1)', '操作 1 号以外的沙盒（没有 1 号时默认是旧的 "default"）') };
 
 const CAGE: Command = {
     helpWhenBare: true,
     name: 'cage',
     text: t('A Podman sandbox whose only way out is one exit IP (happy-sandbox)', 'Podman 沙盒，唯一出口是指定的 IP（happy-sandbox）'),
     more: t(
-        'happy-sandbox (Linux, rootless Podman) runs happy and the agents in a container whose only network is one VLESS exit, so the providers always see the same IP, time zone and locale. It has its own installer: `happy cage install`. Not the same as `happy sandbox`, which only limits what Claude/Codex may touch on this machine.',
-        'happy-sandbox（Linux，rootless Podman）把 happy 和 agent 放进一个容器，网络只有一个 VLESS 出口，模型厂商看到的 IP、时区、语言始终一致。它有自己的安装器：`happy cage install`。和 `happy sandbox` 不是一回事：后者只限制 Claude/Codex 在本机能碰哪些文件。',
+        'happy-sandbox (Linux, rootless Podman) runs happy and the agents in a container whose only network is one VLESS exit, so the providers always see the same IP, time zone and locale. Sandboxes are numbered 1, 2, 3…: the number comes right after the command (`happy cage up 2`; none: sandbox 1). It has its own installer: `happy cage install`. Not the same as `happy sandbox`, which only limits what Claude/Codex may touch on this machine.',
+        'happy-sandbox（Linux，rootless Podman）把 happy 和 agent 放进一个容器，网络只有一个 VLESS 出口，模型厂商看到的 IP、时区、语言始终一致。沙盒按 1、2、3… 编号，序号紧跟在命令后面（`happy cage up 2`；不写就是 1 号）。它有自己的安装器：`happy cage install`。和 `happy sandbox` 不是一回事：后者只限制 Claude/Codex 在本机能碰哪些文件。',
     ),
-    options: [sandboxName],
     subcommands: [
         { name: 'install', text: t('Install happy-sandbox (from the release source happy came from)', '安装 happy-sandbox（从 happy 的同一个发布源）') },
         { name: 'update', text: t('Update happy-sandbox', '更新 happy-sandbox') },
@@ -204,16 +202,15 @@ const CAGE: Command = {
                 { flag: '--share', value: 'SRC:TARGET[:ro]', text: t('Share a host directory (repeatable)', '共享宿主机目录（可多次）') },
                 { flag: '--timezone', value: '<tz>', text: t("Time zone of the exit's region", '出口所在地的时区') },
                 { flag: '--locale', value: '<locale>', text: t("Locale of the exit's region", '出口所在地的 locale') },
-                { flag: '--hostname', value: '<name>', text: t('Hostname (the machine name in the app)', '主机名（App 里显示的机器名）') },
                 { flag: '--image', value: '<image>', text: t('Image', '镜像') },
                 { flag: '--profile', value: 'isolated|host', text: t("host: the host's user, home, /mnt, memory and GPU; only the network and identity differ", 'host：用宿主的用户、home、/mnt、内存和 GPU，只有网络和身份不同') },
             ],
             examples: ['happy cage init --node ~/node.yaml --exit-ip 203.0.113.7 --timezone America/New_York'],
         },
-        { name: 'up', text: t('Start it; the network opens once the exit is the IP', '启动；出口确认是该 IP 后才放行网络') },
-        { name: 'down', text: t('Stop it (files and logins are kept)', '停止（文件和登录都保留）') },
-        { name: 'restart', text: t('Down, then up (applies configuration changes)', '先 down 再 up（让配置改动生效）') },
-        { name: 'here', args: '[command...]', text: t("Run a command (default: a shell) inside, in the host's current directory", '在宿主当前目录对应的沙盒路径里运行命令（默认 shell）') },
+        { name: 'up', args: '[N]', argComplete: 'sandboxes', text: t('Start it; the network opens once the exit is the IP', '启动；出口确认是该 IP 后才放行网络') },
+        { name: 'down', args: '[N]', argComplete: 'sandboxes', text: t('Stop it (files and logins are kept)', '停止（文件和登录都保留）') },
+        { name: 'restart', args: '[N]', argComplete: 'sandboxes', text: t('Down, then up (applies configuration changes)', '先 down 再 up（让配置改动生效）') },
+        { name: 'here', args: '[N] [command...]', argComplete: 'sandboxes', text: t("Run a command (default: a shell) inside, in the host's current directory", '在宿主当前目录对应的沙盒路径里运行命令（默认 shell）') },
         {
             name: 'config', text: t('What the sandbox gets of the host (apply at the next up)', '沙盒能用宿主的哪些东西（下次 up 生效）'),
             subcommands: [
@@ -232,12 +229,11 @@ const CAGE: Command = {
                 { name: 'rm', args: '<package>...', text: t('Remove packages', '删除') },
             ],
         },
-        { name: 'rename', args: '<old> <new>', text: t('Give a sandbox another name (e.g. rename default 1)', '给沙盒改名（如 rename default 1）') },
-        { name: 'links', text: t('The commands of numbered sandboxes: claudeN, codexN, happyN, shellN', '编号沙盒的命令：claudeN、codexN、happyN、shellN'), options: [{ flag: '--remove', text: t('Remove them', '删除这些命令') }] },
-        { name: 'shell', text: t('A shell inside, as dev', '以 dev 用户进入沙盒的 shell') },
-        { name: 'exec', args: '-- <command>...', text: t('Run a command inside', '在沙盒里执行命令') },
-        { name: 'status', text: t('State, exit, network', '状态、出口、网络') },
-        { name: 'identity', text: t('What the sandbox looks like from inside', '从沙盒里面看到的身份信息') },
+        { name: 'links', args: '[N]', argComplete: 'sandboxes', text: t("A sandbox's commands: claudeN, codexN, happyN, shellN", '沙盒的命令：claudeN、codexN、happyN、shellN'), options: [{ flag: '--remove', text: t('Remove them', '删除这些命令') }] },
+        { name: 'shell', args: '[N]', argComplete: 'sandboxes', text: t('A shell inside, as dev', '以 dev 用户进入沙盒的 shell') },
+        { name: 'exec', args: '[N] -- <command>...', argComplete: 'sandboxes', text: t('Run a command inside', '在沙盒里执行命令') },
+        { name: 'status', args: '[N]', argComplete: 'sandboxes', text: t('State, exit, network', '状态、出口、网络') },
+        { name: 'identity', args: '[N]', argComplete: 'sandboxes', text: t('What the sandbox looks like from inside', '从沙盒里面看到的身份信息') },
         { name: 'list', text: t('All sandboxes', '所有沙盒') },
         { name: 'check', text: t('Can this host run sandboxes (and if not, why)', '本机能否运行沙盒（不能的话原因）') },
         {
@@ -255,10 +251,10 @@ const CAGE: Command = {
                 { name: 'list', text: t('Installed images', '已安装的镜像') },
             ],
         },
-        { name: 'enable', text: t('Start it with the host; restart its network if it fails', '随宿主机启动；网络出错时自动重启') },
-        { name: 'disable', text: t('Start it only by hand again (stops it now)', '改回手动启动（现在就停止）') },
+        { name: 'enable', args: '[N]', argComplete: 'sandboxes', text: t('Start it with the host; restart its network if it fails', '随宿主机启动；网络出错时自动重启') },
+        { name: 'disable', args: '[N]', argComplete: 'sandboxes', text: t('Start it only by hand again (stops it now)', '改回手动启动（现在就停止）') },
         { name: 'selinux-policy', text: t('SELinux hosts: the policy sandboxes need', 'SELinux 主机：沙盒需要的策略'), options: [{ flag: '--install', text: t('Install it through sudo', '通过 sudo 安装') }] },
-        { name: 'destroy', text: t('Delete the sandbox and its home', '删除沙盒及其主目录'), options: [{ flag: '--yes', text: t('Really delete', '确认删除') }] },
+        { name: 'destroy', args: '[N]', argComplete: 'sandboxes', text: t('Delete the sandbox and its home', '删除沙盒及其主目录'), options: [{ flag: '--yes', text: t('Really delete', '确认删除') }] },
         { name: 'version', text: t('Version of happy-sandbox', 'happy-sandbox 版本') },
     ],
 };

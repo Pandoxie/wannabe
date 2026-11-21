@@ -27,7 +27,7 @@ bash ~/wannabe-dist/sandbox/install.sh   # 你构建的发布目录（见仓库�
 - 装了 happy 的机器上也可以统一用 `happy cage …`（和 `happy-sandbox …` 完全一样）：`happy cage install`、`happy cage update`、`happy cage uninstall`。
 - 镜像约 700 MB 下载（解开约 2 GB），装进你自己的 Podman。
 - 更新：`~/.happy-sandbox/bin/install.sh`（镜像没变就不重新下载）
-- 卸载：先 `happy-sandbox destroy --yes --name 名字` 删掉每个沙箱，再 `~/.happy-sandbox/bin/install.sh --uninstall`
+- 卸载：先 `happy-sandbox destroy N --yes` 删掉每个沙箱，再 `~/.happy-sandbox/bin/install.sh --uninstall`
 
 全程不需要 root，也不会调用 sudo。
 
@@ -42,7 +42,8 @@ happy-sandbox up          # 起容器和网络；确认出口 IP 正确后才放
 shell1                    # 以 dev 用户进去（= happy-sandbox shell）
 ```
 
-不写 `--name` 时，`init` 用下一个空闲的序号（1、2、3…）当沙箱名，其他命令默认操作 1 号。
+沙箱按顺序编号：`init` 总是建成最小的空闲序号（1、2、3…），不能起名字。其他命令在子命令后面
+跟序号选沙箱（`happy-sandbox up 2`），不写就是 1 号。
 
 第一次进去后：
 
@@ -62,31 +63,32 @@ codex login
 
 ```
 happy-sandbox init --node FILE --exit-ip IP [--profile isolated|host] [--timezone TZ] [--locale L]
-                   [--hostname H] [--share SRC[:TARGET[:ro]]]...
-happy-sandbox up | down | restart | status | shell | exec -- CMD...
-happy-sandbox here [CMD...]         在宿主当前目录对应的沙箱路径里运行 CMD（默认一个 shell）
-happy-sandbox config show | set KEY VALUE | unset KEY | edit | preset host|isolated
+                   [--share SRC[:TARGET[:ro]]]...
+                                    建下一个沙箱（最小的空闲序号）
+happy-sandbox up | down | restart | status | shell [N]
+happy-sandbox exec [N] -- CMD...
+happy-sandbox here [N] [CMD...]     在宿主当前目录对应的沙箱路径里运行 CMD（默认一个 shell）
+happy-sandbox config [N] show | set KEY VALUE | unset KEY | edit | preset host|isolated
                                     沙箱能用宿主的哪些东西（见「宿主镜像模式」）
-happy-sandbox packages list | add PKG... | rm PKG...
+happy-sandbox packages [N] list | add PKG... | rm PKG...
                                     沙箱要一直保留的 apt 包（容器重建后自动重装）
-happy-sandbox identity              这台沙箱从里面看是什么样的机器
-happy-sandbox share list | add SRC [TARGET] [--ro] [--submounts] | rm TARGET
-happy-sandbox enable | disable      跟宿主一起启动；网络进程出错时自动重启
+happy-sandbox identity [N]          这台沙箱从里面看是什么样的机器
+happy-sandbox share [N] list | add SRC [TARGET] [--ro] [--submounts] | rm TARGET
+happy-sandbox enable | disable [N]  跟宿主一起启动；网络进程出错时自动重启
 happy-sandbox list
-happy-sandbox rename OLD NEW        改沙箱名（如 rename default 1），home、登录、身份都保留
-happy-sandbox links [--remove]      重新生成（或删除）编号沙箱的命令 claudeN 等
+happy-sandbox links [N] [--remove]  重新生成（或删除）沙箱的命令 claudeN 等（不写 N：全部）
 happy-sandbox check                 宿主能不能跑沙箱（不能的话说明原因；也报告 GPU）
 happy-sandbox selinux-policy [--install]   CentOS/RHEL/Fedora：TAP 设备的那条 SELinux 规则
 happy-sandbox image list | load FILE
-happy-sandbox destroy --yes         删掉这个沙箱和它的整个目录
+happy-sandbox destroy [N] --yes     删掉这个沙箱和它的整个目录；下次 init 会补上这个序号
 happy-sandbox version
---name N                            操作 1 号以外的沙箱（可以有多个，每个可以用不同的出口）；
-                                    没有 1 号时，默认是旧的 default
 ```
+
+`N` 是沙箱序号，只能紧跟在子命令后面；不写就是 1 号。每个沙箱可以用不同的出口。
 
 ## 编号沙箱和命令
 
-沙箱用数字命名：`~/.happy-sandbox/1`、`~/.happy-sandbox/2`……每个编号沙箱在 `~/.local/bin`
+沙箱只用序号命名：`~/.happy-sandbox/1`、`~/.happy-sandbox/2`……每个沙箱在 `~/.local/bin`
 里有四个命令，都在宿主的当前目录（对应的沙箱路径）里运行：
 
 | 命令 | 运行 |
@@ -96,15 +98,16 @@ happy-sandbox version
 | `happyN` | `happy --yolo`：一个 Happy 会话，手机 App 上也能看到、接管；`happyN codex` 是 Codex 会话 |
 | `shellN` | 一个 shell；`shellN CMD...` 运行 CMD |
 
-`HSB_SAFE=1` 时都不加 full access 参数。`init`、`rename` 会写这些命令，`destroy` 会删掉。
+`HSB_SAFE=1` 时都不加 full access 参数。`init` 会写这些命令，`destroy` 会删掉。
 同名的文件如果不是 happy-sandbox 写的（比如你自己的 `codex2`），不会覆盖，会提示你。
 
 每个沙箱的 Claude、Codex、happy 登录各自独立（宿主镜像模式下在 `state/` 里），可以登录
 不同的账号：`shell2` 进去后 `happy auth login`、`claude`、`codex login` 各一次。Happy App 里
 沙箱 N 显示为「宿主名-N」：daemon 在 App 里还没有这台机器的名字时写一次，你在 App 里改过的名字
-不会被改回。换一个名字：`happy-sandbox config set machine_name 名字 --name N`；不要：`none`。
+不会被改回。
 
-已有的 `default` 沙箱改成 1 号：`happy-sandbox rename default 1`（会停下再启动沙箱）。
+以前建的非数字沙箱（如 `default`）会在第一次运行任何 happy-sandbox 命令时自动改成下一个空闲序号：
+先停下，改目录名、开机启动和命令，原来在运行的再启动起来；home、登录、身份都保留。
 
 改配置（`config`、`share`）后执行 `happy-sandbox restart` 生效：容器按新配置重建，
 home、登录信息和数据都保留。
@@ -272,10 +275,10 @@ happy-sandbox restart
 从沙箱里面看到的"这台机器"，分三层：
 
 1. **identity.json（我们控制）**：machine-id、网卡 MAC、hostname、时区、locale。`init` 时随机生成，不取宿主的任何信息，镜像里也不带任何身份，所以同一个镜像的不同用户、不同沙箱都各不相同。之后每次 `up` 都按这个文件来，重启宿主、换新镜像、重建容器，看到的都是同一台机器。改这个文件（或从备份恢复）后，下次 `up` 就按新的来。
-   - **hostname**：默认是一个普通工作站的名字（如 `ws-7k3q2m`、`dev-k9f2xa`），不带宿主的名字，也不带 sandbox 字样。**同一台宿主上每个沙箱的 hostname 都不同**，也不会和宿主自己的一样：`init`、`identity set`、`up` 都会检查，重名就拒绝。手机 App 里看到的机器名就是它。
+   - **hostname**：默认是一个普通工作站的名字（如 `ws-7k3q2m`、`dev-k9f2xa`），不带宿主的名字，也不带 sandbox 字样。**同一台宿主上每个沙箱的 hostname 都不同**，也不会和宿主自己的一样：`init`、`identity set`、`up` 都会检查，重名就拒绝。hostname 只能随机生成，不能指定。手机 App 里看到的机器名是「宿主名-序号」，不是它。
    - **MAC**：真实网卡厂商（Intel、Realtek）的前缀加随机的后三字节，不是一看就是虚拟网卡的「本地管理」地址。网卡名是 `eth0`。
    - **`/etc/hosts`** 由沙箱自己写，只有 `localhost` 和自己的 hostname，不会出现宿主的主机名、局域网 IP 或容器名。
-   - 改：`happy-sandbox identity set hostname NAME`（或 `random`：新随机一个）、`set mac random`、`set timezone TZ`、`set locale L`，然后 `happy-sandbox restart`。
+   - 改：`happy-sandbox identity N set hostname random`（新随机一个）、`set mac random`、`set timezone TZ`、`set locale L`，然后 `happy-sandbox restart N`。
 2. **宿主硬件（如实暴露）**：CPU 型号和核数、内存、内核版本。容器和宿主共用内核，改不了，同一台宿主上的所有沙箱都一样。我们不去伪造它们。硬件序列号这类只有宿主 root 能读的信息，沙箱里读不到。
 3. **工具自己的标识（在 home 里）**：Claude Code、Codex、happy 第一次运行时各自生成的安装 ID 和登录信息，都存在 home 里，一直保留。
 

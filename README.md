@@ -116,8 +116,8 @@ codex login             # 可选
 ```
 
 手机 App 里会出现这台 sandbox（名字是「宿主名-1」），在上面开会话就行。在宿主上也可以直接
-`claude1`、`codex1`、`happy1`：在当前目录进沙箱启动。再建一个沙箱（`happy-sandbox init ...`
-不写 `--name`）就是 2 号，命令是 `claude2` 等，可以登录另一个账号。也可以用网页：
+`claude1`、`codex1`、`happy1`：在当前目录进沙箱启动。再建一个沙箱（`happy-sandbox init ...`）
+自动就是 2 号，命令是 `claude2` 等，可以登录另一个账号；其他命令在后面跟序号，如 `happy-sandbox status 2`。也可以用网页：
 <https://pandoxie.github.io/wannabe>。
 
 ---

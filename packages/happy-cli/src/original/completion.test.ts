@@ -13,7 +13,7 @@ writeFileSync(join(home, '.happy', 'sessions.json'), JSON.stringify({
         hot2222: { savedAt: 1, lastAliveAt: 9, metadata: { path: '/b', flavor: 'codex' } },
     },
 }));
-for (const name of ['default', 'work']) {
+for (const name of ['1', '2']) {
     mkdirSync(join(home, '.happy-sandbox', name), { recursive: true });
     writeFileSync(join(home, '.happy-sandbox', name, 'config.json'), '{}');
 }
@@ -47,19 +47,20 @@ describe.skipIf(!hasBash)('bash completion', () => {
         expect(complete('happy --yo')).toEqual(['--yolo']);
         expect(complete('happy agent spawn --a')).toEqual(['--agent']);
         expect(complete('happy agent spawn --agent ')).toEqual(['claude', 'codex']);
-        expect(complete('happy cage up --')).toEqual(['--name']);
+        expect(complete('happy cage destroy --')).toEqual(['--yes']);
         expect(complete('happy codex --effort x')).toEqual(['xhigh']);
     });
 
     it('completes session ids (newest first) and sandbox names', () => {
         expect(complete('happy resume ')).toEqual(['hot2222', 'cold111']);
         expect(complete('happy agent send h')).toEqual(['hot2222']);
-        expect(complete('happy cage --name ')).toEqual(['default', 'work']);
-        expect(complete('happy cage status --name w')).toEqual(['work']);
+        expect(complete('happy cage status ')).toEqual(['1', '2']);
+        expect(complete('happy cage up 2')).toEqual(['2']);
     });
 
     it('skips option values and stops at --', () => {
-        expect(complete('happy cage --name work sh')).toEqual(['shell', 'share']);
+        expect(complete('happy cage init --node x.yaml ')).toEqual([]);
+        expect(complete('happy cage sh')).toEqual(['shell', 'share']);
         expect(complete('happy agent send abc ')).toEqual([]);
     });
 });

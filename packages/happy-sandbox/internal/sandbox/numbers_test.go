@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -8,27 +9,21 @@ import (
 	"testing"
 )
 
-func TestDefaultAndNextNumber(t *testing.T) {
+func TestNextNumberFillsGaps(t *testing.T) {
 	t.Setenv("HSB_HOME", t.TempDir())
 	node := writeTestNode(t)
-	if DefaultName() != "1" || NextNumber() != "1" {
-		t.Fatalf("empty: default %q, next %q", DefaultName(), NextNumber())
-	}
-	if _, err := Create(Config{Name: LegacyName, ExitIP: "8.8.8.8"}, node, NewIdentity("ws-aaa222", "", "")); err != nil {
-		t.Fatal(err)
-	}
-	if DefaultName() != LegacyName {
-		t.Fatalf("with only the older default: %q", DefaultName())
+	if NextNumber() != "1" {
+		t.Fatalf("empty: next %q", NextNumber())
 	}
 	for _, n := range []string{"1", "3"} {
 		if _, err := Create(Config{Name: n, ExitIP: "8.8.8.8"}, node, NewIdentity("ws-aaa22"+n, "", "")); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if DefaultName() != "1" || NextNumber() != "2" {
-		t.Fatalf("default %q, next %q", DefaultName(), NextNumber())
+	if NextNumber() != "2" {
+		t.Fatalf("next %q, want the free 2", NextNumber())
 	}
-	for name, want := range map[string]bool{"1": true, "12": true, "0": false, "01": false, "default": false, "1a": false} {
+	for name, want := range map[string]bool{"1": true, "12": true, "0": false, "01": false, "default": false, "1a": false, "12345": false} {
 		if IsNumber(name) != want {
 			t.Errorf("IsNumber(%q) = %v", name, !want)
 		}
@@ -37,16 +32,11 @@ func TestDefaultAndNextNumber(t *testing.T) {
 
 func TestHappyMachineName(t *testing.T) {
 	host := HostShortName()
-	for _, c := range []struct{ name, set, want string }{
-		{"2", "", host + "-2"},
-		{"work", "", ""},
-		{"2", "Studio", "Studio"},
-		{"2", "none", ""},
-	} {
-		i := &Instance{Config: Config{Name: c.name, MachineName: c.set}}
-		if got := i.HappyMachineName(); got != c.want {
-			t.Errorf("%s/%q: %q, want %q", c.name, c.set, got, c.want)
-		}
+	if got := (&Instance{Config: Config{Name: "2"}}).HappyMachineName(); got != host+"-2" {
+		t.Errorf("sandbox 2: %q", got)
+	}
+	if got := (&Instance{Config: Config{Name: "default"}}).HappyMachineName(); got != "" {
+		t.Errorf("default: %q", got)
 	}
 	i := &Instance{Dir: t.TempDir(), Config: Config{Name: "2"}}
 	if err := i.writeGuestFiles(); err != nil {
@@ -55,6 +45,34 @@ func TestHappyMachineName(t *testing.T) {
 	env, _ := os.ReadFile(filepath.Join(i.Dir, "guest", "env.sh"))
 	if !strings.Contains(string(env), "export HAPPY_MACHINE_NAME='"+host+"-2'") {
 		t.Fatalf("env.sh:\n%s", env)
+	}
+}
+
+// A sandbox from before numbering moves to its number with everything in it.
+func TestRenameKeepsTheSandbox(t *testing.T) {
+	t.Setenv("HSB_HOME", t.TempDir())
+	t.Setenv("HSB_PODMAN", "/bin/false") // no container: State says it does not exist
+	inst, err := Create(Config{Name: "default", ExitIP: "8.8.8.8"}, writeTestNode(t), NewIdentity("ws-aaa229", "", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(inst.StateDir("claude"), 0o700)
+	os.WriteFile(filepath.Join(inst.StateDir("claude"), "login"), []byte("x"), 0o600)
+	n, err := inst.Rename(context.Background(), NextNumber())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.Config.Name != "1" || n.Identity.Hostname != "ws-aaa229" {
+		t.Fatalf("renamed: %+v %+v", n.Config, n.Identity)
+	}
+	if _, err := os.Stat(filepath.Join(n.StateDir("claude"), "login")); err != nil {
+		t.Fatal("login lost:", err)
+	}
+	if again, err := Load("1"); err != nil || again.Config.Name != "1" {
+		t.Fatalf("load 1: %v", err)
+	}
+	if _, err := os.Stat(Dir("default")); err == nil {
+		t.Fatal("default is still there")
 	}
 }
 
@@ -81,7 +99,7 @@ func TestLinks(t *testing.T) {
 		}
 	}
 	claude, _ := os.ReadFile(filepath.Join(bin, "claude2"))
-	if !strings.Contains(string(claude), `here --name 2 -- claude "$@"`) {
+	if !strings.Contains(string(claude), `here 2 -- claude "$@"`) {
 		t.Fatalf("claude2:\n%s", claude)
 	}
 	// Sandbox 12's commands are not sandbox 2's: removing 12 leaves 2.
@@ -121,11 +139,11 @@ func TestHappyLinkArguments(t *testing.T) {
 		safe bool
 		want string
 	}{
-		{nil, false, "here --name 3 -- happy --yolo"},
-		{[]string{"--resume"}, false, "here --name 3 -- happy --yolo --resume"},
-		{[]string{"codex", "-m", "x"}, false, "here --name 3 -- happy codex --yolo -m x"},
-		{[]string{"auth", "login"}, false, "here --name 3 -- happy auth login"},
-		{nil, true, "here --name 3 -- happy"},
+		{nil, false, "here 3 -- happy --yolo"},
+		{[]string{"--resume"}, false, "here 3 -- happy --yolo --resume"},
+		{[]string{"codex", "-m", "x"}, false, "here 3 -- happy codex --yolo -m x"},
+		{[]string{"auth", "login"}, false, "here 3 -- happy auth login"},
+		{nil, true, "here 3 -- happy"},
 	} {
 		cmd := exec.Command(filepath.Join(bin, "happy3"), c.args...)
 		cmd.Env = append(os.Environ(), "PATH="+fake+":"+os.Getenv("PATH"))
