@@ -16,7 +16,7 @@ import { MessageQueue2 } from '@/utils/MessageQueue2';
 import { parseSpecialCommand } from '@/parsers/specialCommands';
 import { getEnvironmentInfo } from '@/ui/doctor';
 import { configuration } from '@/configuration';
-import { notifyDaemonSessionStarted } from '@/daemon/controlClient';
+import { notifyDaemonSessionAgentIds, notifyDaemonSessionStarted } from '@/daemon/controlClient';
 import { initialMachineMetadata } from '@/daemon/run';
 import { startHappyServer } from '@/claude/utils/startHappyServer';
 import { startHookServer } from '@/claude/utils/startHookServer';
@@ -286,6 +286,9 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
 
     // Create realtime session
     const session = api.sessionSyncClient(response);
+    // Original Happy: the daemon keeps Claude's session ID, so it can resume
+    // this session without the relay.
+    session.onAgentIds((ids) => { void notifyDaemonSessionAgentIds(response.id, ids); });
 
     // On reconnect, un-archive the session and skip replaying old messages.
     if (reconnectSessionId) {

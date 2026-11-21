@@ -25,7 +25,7 @@ import { HAPPY_AGENT_INSTRUCTIONS } from '@/claude/utils/agentInstructions';
 import { MessageBuffer } from "@/ui/ink/messageBuffer";
 import { CodexDisplay } from "@/ui/ink/CodexDisplay";
 import { trimIdent } from "@/utils/trimIdent";
-import { notifyDaemonSessionStarted } from "@/daemon/controlClient";
+import { notifyDaemonSessionAgentIds, notifyDaemonSessionStarted } from "@/daemon/controlClient";
 import { encodeBase64, decodeBase64 } from '@/api/encryption';
 import type { Session as ApiSession, UserMessage } from '@/api/types';
 import { registerKillSessionHandler } from "@/claude/registerKillSessionHandler";
@@ -233,6 +233,12 @@ export async function runCodex(opts: {
         }
     });
     session = initialSession;
+    // Original Happy: the daemon keeps Codex's thread ID, so it can resume
+    // this session without the relay (only a session the relay created).
+    if (response) {
+        const happySessionId = response.id;
+        session.onAgentIds((ids) => { void notifyDaemonSessionAgentIds(happySessionId, ids); });
+    }
 
     // On reconnect, un-archive the session and skip replaying old messages.
     if (reconnectSessionId) {

@@ -42,6 +42,7 @@ import { startHappyTerminalDaemon } from './happyTerminalBoot';
 import { appendDaemonSpawnModeArgs, shouldForwardDaemonPermissionMode } from './spawnModeArgs';
 import { hasPersistedProcessConflict, isPersistedProcessAlive, isPidAlive, machineBootTimeMs } from './sessionLiveness';
 import { archivedOnRelay, pickResumableSessions } from './autoResume';
+import { applyAgentIds, withKnownAgentIds, type AgentIds } from './agentIds';
 import { isDaemonStartedHappyProcess, readProcessCommand, restartTargets, signalLeftoverGroup, signalSessionGroup, type RestartOutcome, type RestartTarget } from './restartSessions';
 
 /** Shell-escape a string for safe interpolation into tmux commands. */
@@ -211,6 +212,26 @@ export async function startDaemon(): Promise<void> {
       logger.debug(`[DAEMON RUN] Loaded ${Object.keys(persisted).length} persisted sessions from disk`);
     }
 
+    // A session reports its agent's session ID (Claude's SessionStart hook, a
+    // new Codex thread, a fork) as soon as it has it, relay or not: kept in the
+    // tracked session and in sessions.json so a restart can resume it offline.
+    // Only the process that owns the session (its hostPid) may report.
+    const onSessionAgentIds = (sessionId: string, pid: number, ids: AgentIds): boolean => {
+      let changed = false;
+      const tracked = pidToTrackedSession.get(pid);
+      if (tracked && tracked.happySessionId === sessionId && tracked.happySessionMetadataFromLocalWebhook) {
+        const next = applyAgentIds(tracked.happySessionMetadataFromLocalWebhook, ids);
+        if (next) { tracked.happySessionMetadataFromLocalWebhook = next; changed = true; }
+      }
+      const record = readPersistedSessions()[sessionId];
+      if (record && record.metadata?.hostPid === pid) {
+        const next = applyAgentIds(record.metadata, ids);
+        if (next) { persistSession(sessionId, { ...record, metadata: next }); changed = true; }
+      }
+      if (changed) logger.debug(`[DAEMON RUN] Session ${sessionId} agent ID recorded: ${JSON.stringify(ids)}`);
+      return changed;
+    };
+
     // Session spawning awaiter system
     const pidToAwaiter = new Map<number, (session: TrackedSession) => void>();
     const pidToSpawnFailure = new Map<number, (message: string) => void>();
@@ -238,6 +259,15 @@ export async function startDaemon(): Promise<void> {
         logger.debug(`[DAEMON RUN] Ignoring webhook for unexpected session ${sessionId} from reconnect PID ${pid}`);
         return;
       }
+
+      // A resumed session reports itself before its agent has started (Claude
+      // only starts with the first prompt), so its metadata has no agent
+      // session ID yet. Keep the one this daemon resumed it with, or the
+      // previous record's: without it the session cannot be resumed again
+      // unless the relay is reachable.
+      sessionMetadata = withKnownAgentIds(sessionMetadata,
+        existingSession?.happySessionId === sessionId ? existingSession.happySessionMetadataFromLocalWebhook : undefined,
+        readPersistedSessions()[sessionId]?.metadata);
 
       // Persist encryption data to disk so it survives daemon restarts
       if (encryption) {
@@ -768,69 +798,92 @@ export async function startDaemon(): Promise<void> {
       return undefined;
     };
 
+    // Everything a resume needs (key, metadata with the agent session ID),
+    // from this daemon's records, the client's fallback, or the relay. No
+    // process is touched: restartSessions asks this before stopping one.
+    const prepareResume = async (happySessionId: string, options?: ResumeSessionOptions): Promise<{ error: string } | { encryption: SessionEncryptionData; metadata: Metadata }> => {
+      const tracked = findTrackedSessionById(happySessionId);
+      // The daemon only remembers sessions it saw during this lifetime, so a
+      // session started before it (or before its last restart) is unknown
+      // here. That is not a reason to refuse: the client can supply the
+      // session's own key and metadata, which is everything the child needs
+      // to reattach. Tracked state wins when present because it is live.
+      const fallback = options?.fallback;
+      const encryption = tracked?.encryption ?? (fallback
+        ? {
+          encryptionKey: decodeBase64(fallback.encryptionKey),
+          encryptionVariant: fallback.encryptionVariant,
+          seq: fallback.seq,
+          metadataVersion: fallback.metadataVersion,
+          agentStateVersion: fallback.agentStateVersion,
+        }
+        : undefined);
+      if (!encryption) {
+        const why = options?.fallbackReason
+          ? `client reason: ${options.fallbackReason}`
+          : 'the client did not report why (a client too old to send one)';
+        return { error: `Session ${happySessionId} is not tracked by this daemon and no session key came with the request (${why}). Legacy sessions (no per-session data key) can only be resumed while tracked.` };
+      }
+
+      let metadata: Metadata | undefined = tracked?.happySessionMetadataFromLocalWebhook ?? (fallback?.metadata as Metadata | undefined);
+      if (!metadata) {
+        return { error: `Session ${happySessionId} has no metadata. Cannot resume.` };
+      }
+
+      // Persisted startup metadata may lack the provider ID even though the
+      // client has it. Fill only that gap; keep the tracked path and live IDs.
+      const flavor = metadata.flavor ?? 'claude';
+      if (fallback && (fallback.metadata.flavor ?? 'claude') === flavor) {
+        if (flavor === 'claude' && !metadata.claudeSessionId && fallback.metadata.claudeSessionId) {
+          metadata = { ...metadata, claudeSessionId: fallback.metadata.claudeSessionId };
+        } else if (flavor === 'codex' && !metadata.codexThreadId && fallback.metadata.codexThreadId) {
+          metadata = { ...metadata, codexThreadId: fallback.metadata.codexThreadId };
+        }
+      }
+
+      // The agent session ID lands in metadata only once the agent reports it
+      // (for Claude, the SessionStart hook), so the webhook snapshot taken at
+      // spawn never has it — and neither does a client row that was ingested
+      // before the update reached it. Either source can therefore be missing
+      // the one field resume cannot do without, so the refresh is driven by
+      // the field being absent, not by which side supplied the metadata.
+      // The fetch is best effort: it reads the server's 150 most recent
+      // sessions, and an older session simply keeps what the client sent.
+      const needsFetch = (!metadata.claudeSessionId && (!metadata.flavor || metadata.flavor === 'claude'))
+        || (!metadata.codexThreadId && metadata.flavor === 'codex');
+      if (needsFetch) {
+        logger.debug(`[DAEMON RUN] Session ${happySessionId} has no agent session ID in the metadata at hand, fetching from server`);
+        const serverMetadata = await fetchServerSessionMetadata(happySessionId, encryption.encryptionKey, encryption.encryptionVariant);
+        if (serverMetadata) {
+          metadata = serverMetadata;
+          if (tracked) {
+            tracked.happySessionMetadataFromLocalWebhook = serverMetadata;
+          }
+        }
+      }
+      return { encryption, metadata };
+    };
+
+    // Why a resume of this session would fail now (checked before stopping it).
+    const resumeProblem = async (happySessionId: string): Promise<string | undefined> => {
+      try {
+        const prepared = await prepareResume(happySessionId);
+        if ('error' in prepared) return prepared.error;
+        const launch = buildResumeLaunch({ id: happySessionId, active: true, metadata: prepared.metadata }, { startedBy: 'daemon', claudeStartingMode: 'remote' });
+        await fs.access(launch.cwd);
+        return undefined;
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      }
+    };
+
     const resumeSessionAttempt = async (happySessionId: string, options?: ResumeSessionOptions): Promise<SpawnSessionResult> => {
       try {
         const conflict = resumeConflict(happySessionId);
         if (conflict) return conflict;
-        const tracked = findTrackedSessionById(happySessionId);
-        // The daemon only remembers sessions it saw during this lifetime, so a
-        // session started before it (or before its last restart) is unknown
-        // here. That is not a reason to refuse: the client can supply the
-        // session's own key and metadata, which is everything the child needs
-        // to reattach. Tracked state wins when present because it is live.
-        const fallback = options?.fallback;
-        const encryption = tracked?.encryption ?? (fallback
-          ? {
-            encryptionKey: decodeBase64(fallback.encryptionKey),
-            encryptionVariant: fallback.encryptionVariant,
-            seq: fallback.seq,
-            metadataVersion: fallback.metadataVersion,
-            agentStateVersion: fallback.agentStateVersion,
-          }
-          : undefined);
-        if (!encryption) {
-          const why = options?.fallbackReason
-            ? `client reason: ${options.fallbackReason}`
-            : 'the client did not report why (a client too old to send one)';
-          return { type: 'error', errorMessage: `Session ${happySessionId} is not tracked by this daemon and no session key came with the request (${why}). Legacy sessions (no per-session data key) can only be resumed while tracked.` };
-        }
-
-        let metadata = tracked?.happySessionMetadataFromLocalWebhook ?? (fallback?.metadata as Metadata | undefined);
-        if (!metadata) {
-          return { type: 'error', errorMessage: `Session ${happySessionId} has no metadata. Cannot resume.` };
-        }
-
-        // Persisted startup metadata may lack the provider ID even though the
-        // client has it. Fill only that gap; keep the tracked path and live IDs.
-        const flavor = metadata.flavor ?? 'claude';
-        if (fallback && (fallback.metadata.flavor ?? 'claude') === flavor) {
-          if (flavor === 'claude' && !metadata.claudeSessionId && fallback.metadata.claudeSessionId) {
-            metadata = { ...metadata, claudeSessionId: fallback.metadata.claudeSessionId };
-          } else if (flavor === 'codex' && !metadata.codexThreadId && fallback.metadata.codexThreadId) {
-            metadata = { ...metadata, codexThreadId: fallback.metadata.codexThreadId };
-          }
-        }
-
-        // The agent session ID lands in metadata only once the agent reports it
-        // (for Claude, the SessionStart hook), so the webhook snapshot taken at
-        // spawn never has it — and neither does a client row that was ingested
-        // before the update reached it. Either source can therefore be missing
-        // the one field resume cannot do without, so the refresh is driven by
-        // the field being absent, not by which side supplied the metadata.
-        // The fetch is best effort: it reads the server's 150 most recent
-        // sessions, and an older session simply keeps what the client sent.
-        const needsFetch = (!metadata.claudeSessionId && (!metadata.flavor || metadata.flavor === 'claude'))
-          || (!metadata.codexThreadId && metadata.flavor === 'codex');
-        if (needsFetch) {
-          logger.debug(`[DAEMON RUN] Session ${happySessionId} has no agent session ID in the metadata at hand, fetching from server`);
-          const serverMetadata = await fetchServerSessionMetadata(happySessionId, encryption.encryptionKey, encryption.encryptionVariant);
-          if (serverMetadata) {
-            metadata = serverMetadata;
-            if (tracked) {
-              tracked.happySessionMetadataFromLocalWebhook = serverMetadata;
-            }
-          }
-        }
+        const prepared = await prepareResume(happySessionId, options);
+        if ('error' in prepared) return { type: 'error', errorMessage: prepared.error };
+        const { encryption, metadata } = prepared;
 
         const launch = buildResumeLaunch(
           { id: happySessionId, active: true, metadata },
@@ -991,7 +1044,11 @@ export async function startDaemon(): Promise<void> {
           targets.push({ sessionId, pid, tracked: false, flavor: record.metadata.flavor ?? undefined, path: record.metadata.path });
         }
         logger.debug(`[DAEMON RUN] Restarting ${targets.length} sessions (${skipped.length} skipped)`);
-        const results = await restartTargets(targets, {
+        const outcomes = await restartTargets(targets, {
+          // Before anything is stopped: a session that could not be resumed
+          // (no agent session ID here and the relay unreachable, its directory
+          // gone…) keeps running instead of being lost.
+          check: (target) => resumeProblem(target.sessionId),
           // SIGUSR2 to the session process only: it exits without telling the
           // relay the session ended (runClaude), so the resumed process is not
           // held inactive. A process without that handler (older happy, Codex)
@@ -1012,7 +1069,12 @@ export async function startDaemon(): Promise<void> {
           resume: (sessionId) => resumeSession(sessionId),
           sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
         });
-        for (const r of results) logger.debug(`[DAEMON RUN] Restart ${r.sessionId}: ${r.result}${r.error ? ` (${r.error})` : ''}`);
+        for (const r of outcomes) logger.debug(`[DAEMON RUN] Restart ${r.sessionId}: ${r.result}${r.error ? ` (${r.error})` : ''}`);
+        const results: RestartOutcome[] = [];
+        for (const r of outcomes) {
+          if (r.result === 'kept') skipped.push({ sessionId: r.sessionId, reason: `kept running, it could not be resumed: ${r.error}` });
+          else results.push(r);
+        }
         return { results, skipped };
       })().finally(() => { restartInFlight = null; });
       return restartInFlight;
@@ -1076,6 +1138,7 @@ export async function startDaemon(): Promise<void> {
         return { results: [...first.results, ...rest.results], skipped: [...first.skipped, ...rest.skipped.filter((s) => !first.skipped.some((f) => f.sessionId === s.sessionId))] };
       },
       requestShutdown: () => requestShutdown('happy-cli'),
+      onSessionAgentIds,
       onHappySessionWebhook,
       getConnectionStatus: () => ({
         machineId,

@@ -53,6 +53,17 @@ describe('restartTargets', () => {
             { sessionId: 'b', result: 'restarted' },
         ]);
     });
+
+    it('leaves a session running when it could not be resumed, and carries on', async () => {
+        const { deps: d, calls } = deps();
+        const check = vi.fn(async (t: RestartTarget) => t.sessionId === 'a' ? 'Happy session a is missing its Claude session ID.' : undefined);
+        const out = await restartTargets([target('a', 1), target('b', 2)], { ...d, check });
+        expect(calls).toEqual(['stop b', 'resume b']);
+        expect(out).toMatchObject([
+            { sessionId: 'a', result: 'kept', error: 'Happy session a is missing its Claude session ID.' },
+            { sessionId: 'b', result: 'restarted' },
+        ]);
+    });
 });
 
 describe('isDaemonStartedHappyProcess', () => {

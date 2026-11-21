@@ -21,6 +21,7 @@ export function startDaemonControlServer({
   restartSessions,
   requestShutdown,
   onHappySessionWebhook,
+  onSessionAgentIds,
   getConnectionStatus,
   syncFleet,
   egressCheck,
@@ -31,6 +32,7 @@ export function startDaemonControlServer({
   restartSessions?: (opts?: { onlyOutdated?: boolean }) => Promise<{ results: RestartOutcome[]; skipped: { sessionId: string; reason: string }[] }>;
   requestShutdown: () => void;
   onHappySessionWebhook: (sessionId: string, metadata: Metadata, encryption?: SessionEncryptionData) => void;
+  onSessionAgentIds?: (sessionId: string, pid: number, ids: { claudeSessionId?: string; codexThreadId?: string }) => boolean;
   getConnectionStatus?: () => { machineId: string; cliVersion: string; serverUrl: string; connected: boolean };
   syncFleet?: () => FleetStatus;
   egressCheck?: (body: { sessionId?: string; firstMessage?: boolean; passive?: boolean }) => Promise<unknown>;
@@ -93,6 +95,23 @@ export function startDaemonControlServer({
       onHappySessionWebhook(sessionId, metadata, encryptionData);
 
       return { status: 'ok' as const };
+    });
+
+    // Original Happy: a session reports its agent's session ID (see
+    // onSessionAgentIds in run.ts), so the daemon can resume it without the relay.
+    typed.post('/session-agent-id', {
+      schema: {
+        body: z.object({
+          sessionId: z.string(),
+          pid: z.number(),
+          claudeSessionId: z.string().optional(),
+          codexThreadId: z.string().optional(),
+        }),
+      }
+    }, async (request) => {
+      const { sessionId, pid, claudeSessionId, codexThreadId } = request.body;
+      const recorded = onSessionAgentIds ? onSessionAgentIds(sessionId, pid, { claudeSessionId, codexThreadId }) : false;
+      return { status: 'ok' as const, recorded };
     });
 
     // List all tracked sessions

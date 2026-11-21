@@ -40,6 +40,7 @@ vi.mock('@/claude/loop', () => ({
 
 vi.mock('@/daemon/controlClient', () => ({
     notifyDaemonSessionStarted: mockNotifyDaemonSessionStarted,
+    notifyDaemonSessionAgentIds: vi.fn(async () => {}),
 }));
 
 vi.mock('@/daemon/run', () => ({
@@ -124,6 +125,7 @@ async function startRemoteRunClaudeHarness(opts: {
         sessionId: 'happy-session-1',
         suppressNextArchiveSignal: vi.fn(),
         skipExistingMessages: vi.fn(),
+        onAgentIds: vi.fn(),
         updateMetadata: vi.fn((updater: (current: Record<string, unknown>) => Record<string, unknown>) => {
             metadata = updater(metadata);
         }),
@@ -287,6 +289,7 @@ describe('runClaude remote JSONL scanner', () => {
             sessionId: 'happy-session-1',
             suppressNextArchiveSignal: vi.fn(),
             skipExistingMessages: vi.fn(),
+            onAgentIds: vi.fn(),
             updateMetadata: vi.fn(),
             sendClaudeSessionMessage: vi.fn((message: unknown) => {
                 sentMessages.push(message);
@@ -394,6 +397,7 @@ describe('runClaude remote JSONL scanner', () => {
             sessionId: 'happy-session-1',
             suppressNextArchiveSignal: vi.fn(),
             skipExistingMessages: vi.fn(),
+            onAgentIds: vi.fn(),
             updateMetadata: vi.fn((updater: (current: typeof metadata) => typeof metadata) => {
                 metadata = updater(metadata);
             }),

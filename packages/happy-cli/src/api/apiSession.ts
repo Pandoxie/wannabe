@@ -1,3 +1,4 @@
+import { agentIdOf, type AgentIds } from '@/daemon/agentIds';
 import { titleOwner, withTitle } from '@/original/sessionTitle';
 import { logger } from '@/ui/logger'
 import { upgradeModelCommand, upgradeModelId } from '@/utils/modelUpgrade';
@@ -1074,7 +1075,32 @@ export class ApiSessionClient extends EventEmitter {
     /** Delay before recording the model in use (see publishSessionModel). */
     static MODEL_SYNC_DELAY_MS = 1500;
 
+    private agentIdListener: ((ids: AgentIds) => void) | null = null;
+    private reportedAgentIds = '';
+
+    /**
+     * Original Happy: called with the agent's session ID (Claude's session ID,
+     * Codex's thread ID) whenever a metadata update sets a new one, right
+     * away, before the relay has it (it may be unreachable). runClaude and
+     * runCodex pass it to the daemon, which keeps it for resuming.
+     */
+    onAgentIds(listener: (ids: AgentIds) => void) {
+        this.agentIdListener = listener;
+    }
+
     updateMetadata(handler: (metadata: Metadata) => Metadata) {
+        if (this.agentIdListener && this.metadata) {
+            try {
+                const ids = agentIdOf(handler(this.metadata));
+                const key = JSON.stringify(ids);
+                if (Object.keys(ids).length && key !== this.reportedAgentIds) {
+                    this.reportedAgentIds = key;
+                    this.agentIdListener(ids);
+                }
+            } catch (error) {
+                logger.debug('[API] agent ID listener failed', error);
+            }
+        }
         this.metadataLock.inLock(async () => {
             await backoff(async () => {
                 let updated = handler(this.metadata!); // Weird state if metadata is null - should never happen but here we are

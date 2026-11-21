@@ -30,11 +30,18 @@ export type RestartOutcome = {
     sessionId: string;
     flavor?: string;
     path?: string;
-    result: 'restarted' | 'failed';
+    /** kept: not stopped, because it could not have been resumed (see RestartDeps.check). */
+    result: 'restarted' | 'failed' | 'kept';
     error?: string;
 };
 
 export type RestartDeps = {
+    /**
+     * Why this session could not be resumed right now (no agent session ID,
+     * no key, its directory gone…), or undefined when it can. Asked before the
+     * session is stopped: a session that cannot come back keeps running.
+     */
+    check?: (target: RestartTarget) => Promise<string | undefined>;
     stop: (target: RestartTarget) => void;
     forceKill: (target: RestartTarget) => void;
     /** True once the process is gone (and, for a tracked child, its exit was handled). */
@@ -55,6 +62,11 @@ export async function restartTargets(
     for (const target of targets) {
         const base = { sessionId: target.sessionId, flavor: target.flavor, path: target.path };
         try {
+            const problem = await deps.check?.(target);
+            if (problem) {
+                outcomes.push({ ...base, result: 'kept', error: problem });
+                continue;
+            }
             deps.stop(target);
             let waited = 0;
             while (!deps.isGone(target) && waited < exitTimeoutMs) {

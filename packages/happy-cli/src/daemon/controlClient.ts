@@ -90,6 +90,22 @@ export async function notifyDaemonSessionStarted(
   }
 }
 
+/**
+ * Original Happy: tell the daemon this session's agent session ID (Claude's
+ * session ID, Codex's thread ID) so it can resume the session without the
+ * relay. Best effort: no daemon, nothing to do.
+ */
+export async function notifyDaemonSessionAgentIds(
+  sessionId: string,
+  ids: { claudeSessionId?: string; codexThreadId?: string },
+): Promise<void> {
+  try {
+    await daemonPost('/session-agent-id', { sessionId, pid: process.pid, ...ids });
+  } catch {
+    // No daemon: nothing records it.
+  }
+}
+
 export async function listDaemonSessions(): Promise<any[]> {
   const result = await daemonPost('/list');
   return result.children || [];
