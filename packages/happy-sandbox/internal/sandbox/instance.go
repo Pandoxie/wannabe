@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/Pandoxie/wannabe/packages/happy-sandbox/internal/proxycore"
@@ -23,26 +22,32 @@ type Share struct {
 	Source   string `json:"source"`
 	Target   string `json:"target"`
 	ReadOnly bool   `json:"read_only"`
+	// Submounts: also every filesystem mounted below Source (autofs and NFS
+	// disks under /mnt), each its own bind so it is really mounted inside.
+	Submounts bool `json:"submounts,omitempty"`
 }
 
 type Config struct {
 	Name   string `json:"name"`
 	Image  string `json:"image"`
 	ExitIP string `json:"exit_ip"`
-	// Resource limits, none unless written here: memory_bytes (bytes), cpus
-	// (cores, may be fractional), pids_limit (processes and threads). A change
-	// recreates the container at the next up (home kept).
+	// The older resource limits: memory_bytes (bytes), cpus (cores, may be
+	// fractional), pids_limit (processes and threads). access.resources wins
+	// where it says something.
 	MemoryBytes int64   `json:"memory_bytes,omitempty"`
 	CPUs        float64 `json:"cpus,omitempty"`
 	PidsLimit   int64   `json:"pids_limit,omitempty"`
 	Shares      []Share `json:"shares"`
 	// HostPorts opens the host's 127.0.0.1:<port> to the guest at
-	// 192.168.64.254:<port> (development, e.g. [22] for ssh to the host).
+	// 192.168.1.254:<port> (development, e.g. [22] for ssh to the host).
 	// Off by default; read when the network starts, no recreation needed.
 	HostPorts []int `json:"host_ports,omitempty"`
-	// GPU: absent = all NVIDIA GPUs when the host has a CDI spec (automatic),
-	// "none" = off, or one device of the spec ("0", a GPU UUID, "all").
+	// GPU is the older GPU setting (access.devices.gpu wins): absent =
+	// automatic, "none" = off, or one device of the NVIDIA spec ("0", a GPU
+	// UUID, "all").
 	GPU string `json:"gpu,omitempty"`
+	// Access: what the sandbox gets of the host (access.go).
+	Access Access `json:"access"`
 }
 
 // CheckLimits validates the resource limits (0 or absent: no limit).
@@ -57,24 +62,6 @@ func (c Config) CheckLimits() error {
 		return fmt.Errorf("pids_limit %d: 0 (no limit) or at least 256", c.PidsLimit)
 	}
 	return nil
-}
-
-// limitArgs are the podman create flags for the limits. Podman applies its
-// own pids default (2048) when none is given, so "no limit" is explicit.
-func (c Config) limitArgs() []string {
-	var a []string
-	if c.MemoryBytes > 0 {
-		a = append(a, "--memory", strconv.FormatInt(c.MemoryBytes, 10))
-	}
-	if c.CPUs > 0 {
-		a = append(a, "--cpus", strconv.FormatFloat(c.CPUs, 'f', -1, 64))
-	}
-	if c.PidsLimit > 0 {
-		a = append(a, "--pids-limit", strconv.FormatInt(c.PidsLimit, 10))
-	} else {
-		a = append(a, "--pids-limit", "-1")
-	}
-	return a
 }
 
 // CheckHostPorts validates host_ports.
@@ -140,9 +127,16 @@ func (i *Instance) Container() string {
 	return "happy-sandbox-" + i.Config.Name
 }
 
-// HomeDir is dev's home, bind-mounted at /home/dev: everything of a sandbox
-// stays in its directory.
+// HomeDir is the private home (home mode "sandbox"), bind-mounted at the
+// user's home: everything of a sandbox stays in its directory.
 func (i *Instance) HomeDir() string { return i.path("home") }
+
+// StateDir holds a private tool's state (home.private), mounted at
+// /var/lib/happy-sandbox/TOOL.
+func (i *Instance) StateDir(tool string) string { return i.path("state", tool) }
+
+// AptListsDir keeps apt's package lists across containers (access.packages).
+func (i *Instance) AptListsDir() string { return i.path("apt-lists") }
 
 // Hostname is the identity's; the image build's container goes by its name.
 func (i *Instance) Hostname() string {
@@ -233,6 +227,9 @@ func Create(c Config, nodeFile string, id Identity) (*Instance, error) {
 	if err := c.CheckLimits(); err != nil {
 		return nil, err
 	}
+	if err := c.Access.Validate(); err != nil {
+		return nil, err
+	}
 	for k := range c.Shares {
 		s, err := CheckShare(c.Shares[k], c.Shares[:k])
 		if err != nil {
@@ -253,7 +250,12 @@ func Create(c Config, nodeFile string, id Identity) (*Instance, error) {
 	return inst, inst.Save()
 }
 
+// systemTargets are the image's own directories: a share may not cover them.
+var systemTargets = []string{"/bin", "/boot", "/dev", "/etc", "/lib", "/lib32", "/lib64", "/libx32",
+	"/proc", "/run", "/sbin", "/sys", "/tmp", "/usr", "/var"}
+
 // CheckShare resolves and validates a share against those already present.
+// An empty target is the source's own path.
 func CheckShare(s Share, existing []Share) (Share, error) {
 	src, err := filepath.EvalSymlinks(s.Source)
 	if err != nil {
@@ -265,18 +267,29 @@ func CheckShare(s Share, existing []Share) (Share, error) {
 	}
 	home := os.Getenv("HOME")
 	if src == "/" || src == home || strings.HasPrefix(Home()+"/", src+"/") {
-		return s, fmt.Errorf("share source %s is too broad (it contains your home or the sandbox files)", s.Source)
+		return s, fmt.Errorf("share source %s is too broad (it contains your home or the sandbox files; for the whole home use access.home.mode host)", s.Source)
+	}
+	if s.Target == "" {
+		s.Target = src
 	}
 	t := filepath.Clean(s.Target)
-	if !(strings.HasPrefix(t, "/workspace/") || strings.HasPrefix(t, "/reference/")) || t != s.Target {
-		return s, fmt.Errorf("share target %q must be a clean path under /workspace/ or /reference/", s.Target)
+	if !filepath.IsAbs(t) || t != s.Target {
+		return s, fmt.Errorf("share target %q must be a clean absolute path", s.Target)
+	}
+	if t == "/" || t == "/home" {
+		return s, fmt.Errorf("share target %s would hide the system", t)
+	}
+	for _, sys := range systemTargets {
+		if t == sys || strings.HasPrefix(t, sys+"/") {
+			return s, fmt.Errorf("share target %s is inside the system directory %s", t, sys)
+		}
 	}
 	for _, e := range existing {
 		if e.Target == t || strings.HasPrefix(t+"/", e.Target+"/") || strings.HasPrefix(e.Target+"/", t+"/") {
 			return s, fmt.Errorf("share target %s overlaps %s", t, e.Target)
 		}
 	}
-	return Share{Source: src, Target: t, ReadOnly: s.ReadOnly}, nil
+	return Share{Source: src, Target: t, ReadOnly: s.ReadOnly, Submounts: s.Submounts}, nil
 }
 
 func List() ([]string, error) {

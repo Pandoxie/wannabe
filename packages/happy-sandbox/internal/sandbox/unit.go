@@ -47,8 +47,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-%sExecStart=%s run --name %%i
-ExecStop=%s stop-container --name %%i
+%sExecStart=%s run %%i
+ExecStop=%s stop-container %%i
 KillMode=process
 Restart=on-failure
 RestartSec=15

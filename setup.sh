@@ -10,13 +10,15 @@
 # 环境变量（都可不设）：
 #   WANNABE_DIST     发布目录（默认 ~/wannabe-dist）
 #   HSB_BUILD        构建目录（默认 ~/build/happy-sandbox-v2）
-#   WANNABE_SANDBOX  sandbox 名字（默认 default）
+#   WANNABE_PROFILE  isolated（默认：沙箱有自己的 home）或 host（宿主镜像模式：
+#                    同一个用户、home、conda、/mnt，只有网络和身份是自己的）
 #   WANNABE_REBUILD=1  重新构建镜像
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 DIST="${WANNABE_DIST:-$HOME/wannabe-dist}"
 B="${HSB_BUILD:-$HOME/build/happy-sandbox-v2}"
-NAME="${WANNABE_SANDBOX:-default}"
+NAME=1   # 沙箱按顺序编号；setup.sh 只管 1 号
+PROFILE="${WANNABE_PROFILE:-isolated}"
 SB="$ROOT/packages/happy-sandbox"
 
 step() { printf '\n\033[1;36m[%s] %s\033[0m\n' "$1" "$2"; }
@@ -27,6 +29,7 @@ node_file="${1:-}"
 exit_ip="${2:-}"
 [ -n "$node_file" ] || die "用法：./setup.sh 节点.yaml [出口IP]（节点文件的写法见 node.example.yaml）"
 [ -f "$node_file" ] || die "找不到节点文件 $node_file"
+case "$PROFILE" in isolated|host) ;; *) die "WANNABE_PROFILE 只能是 isolated 或 host（现在是 $PROFILE）" ;; esac
 
 # ── 1. 检查环境 ────────────────────────────────────────────────────────────
 step 1/7 "检查环境"
@@ -105,27 +108,29 @@ fi
 step 6/7 "安装 happy-sandbox 和镜像（到 ~/.happy-sandbox 和你自己的 Podman）"
 bash "$DIST/sandbox/install.sh"
 hsb="$HOME/.happy-sandbox/bin/happy-sandbox"
-name_opt=(); [ "$NAME" = default ] || name_opt=(--name "$NAME")
+"$hsb" list   # 旧的 default 沙箱会在这里自动变成编号沙箱
 
 # ── 7. 建 sandbox 并启动 ───────────────────────────────────────────────────
 step 7/7 "创建并启动 sandbox「$NAME」"
 if [ -f "$HOME/.happy-sandbox/$NAME/config.json" ]; then
     say "sandbox「$NAME」已经存在，直接启动"
 else
-    "$hsb" init "${name_opt[@]}" --node "$node_copy" --exit-ip "$exit_ip"
+    "$hsb" init --profile "$PROFILE" --node "$node_copy" --exit-ip "$exit_ip"
 fi
-"$hsb" up "${name_opt[@]}"
+"$hsb" up "$NAME"
 
 cat <<EOF
 
 装好了。进 sandbox，登录一次：
 
-  happy-sandbox shell${name_opt[*]:+ ${name_opt[*]}}
+  shell$NAME
   happy auth login      # 用手机上的官方 Happy App 扫码（或 web：https://pandoxie.github.io/wannabe）
   claude                # 登录你的 Claude 账号
   codex login           # 可选
 
-之后在手机或网页上就能看到这台 sandbox，在里面开 Claude / Codex 会话。
-  跟宿主一起启动：happy-sandbox enable      停止：happy-sandbox down
+之后在手机或网页上就能看到这台 sandbox（App 里叫 $(hostname -s)-$NAME），在里面开 Claude / Codex 会话。
+  命令：claude$NAME、codex$NAME（在当前目录进沙箱，full access）、happy$NAME（Happy 会话）、shell$NAME
+  再建一个沙箱：happy-sandbox init --node 节点文件 --exit-ip IP（自动是下一个序号）
+  跟宿主一起启动：happy-sandbox enable $NAME      停止：happy-sandbox down $NAME
   发布目录：$DIST（宿主上也想用 happy：bash $DIST/install.sh）
 EOF

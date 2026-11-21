@@ -55,7 +55,7 @@ command -v sha256sum >/dev/null || die "sha256sum is required (coreutils)"
 if [ "${1:-}" = --uninstall ]; then
     left="$(find "$HOME_DIR" -mindepth 2 -maxdepth 2 -name config.json 2>/dev/null | wc -l)"
     if [ "$left" -gt 0 ]; then
-        die "there are still $left sandbox(es) in $HOME_DIR: happy-sandbox list, then happy-sandbox destroy --yes --name N for each"
+        die "there are still $left sandbox(es) in $HOME_DIR: happy-sandbox list, then happy-sandbox destroy N --yes for each"
     fi
     "$PODMAN" rmi "$IMAGE" >/dev/null 2>&1 && say "removed the image $IMAGE" || true
     rm -f "$LINK_DIR/happy-sandbox"

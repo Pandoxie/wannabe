@@ -66,7 +66,7 @@ func TestHostPortsReachOnlyTheOpenedLoopbackPorts(t *testing.T) {
 		{"udp", open.String()},
 		{"tcp", HostIP + ":" + strconv.Itoa(int(port)+1)},
 		{"tcp", "127.0.0.1:" + strconv.Itoa(int(port))},
-		{"tcp", "192.168.64.1:" + strconv.Itoa(int(port))},
+		{"tcp", GatewayIP + ":" + strconv.Itoa(int(port))},
 		{"tcp", "93.184.215.14:443"}, // the internet: still the closed gate's
 	} {
 		if c.Outbound(d.network, netip.MustParseAddrPort(d.dst)) {

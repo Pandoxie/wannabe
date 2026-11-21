@@ -2,22 +2,23 @@ package sandbox
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
-// The embedded copies must be the image's scripts.
-func TestGuestScriptsMatchTheImage(t *testing.T) {
-	for _, name := range guestScriptNames {
-		embedded, err := guestScripts.ReadFile("guest/" + name)
-		if err != nil {
-			t.Fatal(err)
+// The image takes the guest files from internal/sandbox/guest, the same
+// files happy-sandbox embeds: every one written at start must be copied in.
+func TestContainerfileCopiesTheGuestScripts(t *testing.T) {
+	data, err := os.ReadFile("../../image/Containerfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range append([]string{"hsb-setup.sh", "hsb-setup.service", "hsb-packages.service", "99happy-sandbox"}, guestScriptNames...) {
+		if _, err := os.Stat("guest/" + name); err != nil {
+			t.Error(err)
 		}
-		image, err := os.ReadFile("../../image/" + name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(embedded) != string(image) {
-			t.Errorf("internal/sandbox/guest/%s differs from image/%s: copy it over", name, name)
+		if !strings.Contains(string(data), "internal/sandbox/guest/"+name) {
+			t.Errorf("image/Containerfile does not copy internal/sandbox/guest/%s", name)
 		}
 	}
 }

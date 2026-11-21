@@ -44,7 +44,22 @@ const writeJson = (file, value) => writeFileSync(file, JSON.stringify(value, nul
 const fail = (msg) => { console.error(`error: ${msg}`); process.exit(1); };
 
 // --- Preconditions ---------------------------------------------------------
-if (root.startsWith('/mnt/') || root.startsWith('/workspace/projects/')) fail('run this from the local-disk clone (see CLAUDE.md); CIFS has no exec permission');
+// A network share (CIFS / SMB, NFS) has no exec permission for the build:
+// judged by the filesystem the checkout is on, not by its path.
+const checkoutFs = (() => {
+    try {
+        let best = '', type = '';
+        for (const line of readFileSync('/proc/self/mounts', 'utf8').split('\n')) {
+            const [, mp, fs] = line.split(' ');
+            const point = (mp || '').replace(/\\040/g, ' ');
+            if (fs && (root === point || root.startsWith(point.endsWith('/') ? point : point + '/')) && point.length > best.length) {
+                best = point; type = fs;
+            }
+        }
+        return type;
+    } catch { return ''; }  // macOS: no /proc
+})();
+if (/^(cifs|smb3?|nfs4?)$/.test(checkoutFs)) fail(`run this from a clone on a local disk: ${root} is on ${checkoutFs}, which has no exec permission`);
 // The dist is a git checkout (the release becomes a commit; --publish pushes
 // it) or a plain directory (files only: serve it over http(s), or install
 // from it with HAPPY_DIST_URL=file:///…).

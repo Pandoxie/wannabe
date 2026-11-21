@@ -175,36 +175,43 @@ cage = 只有一个固定出口 IP 的容器（wannabe）；sandbox = 本机上�
 
 Podman 沙盒，唯一出口是指定的 IP（happy-sandbox）。
 
-happy-sandbox（Linux，rootless Podman）把 happy 和 agent 放进一个容器，网络只有一个 VLESS 出口，模型厂商看到的 IP、时区、语言始终一致。它有自己的安装器：`happy cage install`。和 `happy sandbox` 不是一回事：后者只限制 Claude/Codex 在本机能碰哪些文件。
+happy-sandbox（Linux，rootless Podman）把 happy 和 agent 放进一个容器，网络只有一个 VLESS 出口，模型厂商看到的 IP、时区、语言始终一致。沙盒按 1、2、3… 编号，序号紧跟在命令后面（`happy cage up 2`；不写就是 1 号）。它有自己的安装器：`happy cage install`。和 `happy sandbox` 不是一回事：后者只限制 Claude/Codex 在本机能碰哪些文件。
 
 | 命令 | 作用 |
 | --- | --- |
 | `happy cage install` | 安装 happy-sandbox（从 happy 的同一个发布源） |
 | `happy cage update` | 更新 happy-sandbox |
 | `happy cage uninstall` | 卸载 happy-sandbox |
-| `happy cage init` | 创建沙盒<br>`--node <file>` 一个 mihomo 节点文件（chmod 600）<br>`--exit-ip <ip>` 模型厂商必须看到的公网 IPv4<br>`--share SRC:TARGET[:ro]` 共享宿主机目录（可多次）<br>`--timezone <tz>` 出口所在地的时区<br>`--locale <locale>` 出口所在地的 locale<br>`--hostname <name>` 主机名（App 里显示的机器名）<br>`--image <image>` 镜像 |
-| `happy cage up` | 启动；出口确认是该 IP 后才放行网络 |
-| `happy cage down` | 停止（文件和登录都保留） |
-| `happy cage shell` | 以 dev 用户进入沙盒的 shell |
-| `happy cage exec -- <command>...` | 在沙盒里执行命令 |
-| `happy cage status` | 状态、出口、网络 |
-| `happy cage identity` | 从沙盒里面看到的身份信息 |
+| `happy cage init` | 创建沙盒<br>`--node <file>` 一个 mihomo 节点文件（chmod 600）<br>`--exit-ip <ip>` 模型厂商必须看到的公网 IPv4<br>`--share SRC:TARGET[:ro]` 共享宿主机目录（可多次）<br>`--timezone <tz>` 出口所在地的时区<br>`--locale <locale>` 出口所在地的 locale<br>`--image <image>` 镜像<br>`--profile isolated\|host` host：用宿主的用户、home、/mnt、内存和 GPU，只有网络和身份不同 |
+| `happy cage up [N]` | 启动；出口确认是该 IP 后才放行网络 |
+| `happy cage down [N]` | 停止（文件和登录都保留） |
+| `happy cage restart [N]` | 先 down 再 up（让配置改动生效） |
+| `happy cage here [N] [command...]` | 在宿主当前目录对应的沙盒路径里运行命令（默认 shell） |
+| `happy cage config show` | 显示 config.json |
+| `happy cage config set <key> <value>` | 设置一项（点号路径，如 access.resources.memory） |
+| `happy cage config unset <key>` | 删除一项 |
+| `happy cage config edit` | 用 $EDITOR 编辑后检查 |
+| `happy cage config preset host\|isolated` | 宿主镜像模式或隔离模式 |
+| `happy cage packages list` | 列出 |
+| `happy cage packages add <package>...` | 添加 |
+| `happy cage packages rm <package>...` | 删除 |
+| `happy cage links [N]` | 沙盒的命令：claudeN、codexN、happyN、shellN<br>`--remove` 删除这些命令 |
+| `happy cage shell [N]` | 以 dev 用户进入沙盒的 shell |
+| `happy cage exec [N] -- <command>...` | 在沙盒里执行命令 |
+| `happy cage status [N]` | 状态、出口、网络 |
+| `happy cage identity [N]` | 从沙盒里面看到的身份信息 |
 | `happy cage list` | 所有沙盒 |
 | `happy cage check` | 本机能否运行沙盒（不能的话原因） |
 | `happy cage share list` | 列出共享 |
-| `happy cage share add <src> <target>` | 添加共享<br>`--ro` 只读 |
+| `happy cage share add <src> [target]` | 添加共享<br>`--ro` 只读<br>`--submounts` 同时包含 src 下挂载的每块盘 |
 | `happy cage share rm <target>` | 删除共享 |
 | `happy cage image load <file>` | 安装镜像（OCI 包）；沙盒下次 up 时切换过去 |
 | `happy cage image list` | 已安装的镜像 |
-| `happy cage enable` | 随宿主机启动；网络出错时自动重启 |
-| `happy cage disable` | 改回手动启动（现在就停止） |
+| `happy cage enable [N]` | 随宿主机启动；网络出错时自动重启 |
+| `happy cage disable [N]` | 改回手动启动（现在就停止） |
 | `happy cage selinux-policy` | SELinux 主机：沙盒需要的策略<br>`--install` 通过 sudo 安装 |
-| `happy cage destroy` | 删除沙盒及其主目录<br>`--yes` 确认删除 |
+| `happy cage destroy [N]` | 删除沙盒及其主目录<br>`--yes` 确认删除 |
 | `happy cage version` | happy-sandbox 版本 |
-
-| 选项 | 作用 |
-| --- | --- |
-| `--name <name>` | 操作 "default" 以外的沙盒 |
 
 ### `happy sandbox <命令>`
 

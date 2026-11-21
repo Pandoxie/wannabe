@@ -12,26 +12,37 @@ import (
 	"net"
 	"net/netip"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"sync"
 	"time"
 
+	"github.com/Pandoxie/wannabe/packages/happy-sandbox/internal/gate"
 	"github.com/containers/gvisor-tap-vsock/pkg/types"
 	"github.com/containers/gvisor-tap-vsock/pkg/virtualnetwork"
-	"github.com/Pandoxie/wannabe/packages/happy-sandbox/internal/gate"
 )
 
+// The guest's network looks like a home LAN: a router at .1, the machine on
+// an address a router's DHCP hands out.
 const (
-	GuestIP    = "192.168.64.2"
-	GatewayIP  = "192.168.64.1"
+	Subnet     = "192.168.1.0/24"
+	GuestIP    = "192.168.1.105"
+	GatewayIP  = "192.168.1.1"
 	GuestMAC   = "5a:94:ef:e4:0c:02"
 	GatewayMAC = "5a:94:ef:e4:0c:01"
 	// HostIP is the host's loopback as the guest sees it, for the ports an
 	// instance opens with host_ports only (nothing else answers there).
-	HostIP     = "192.168.64.254"
-	TapName    = "hsbtap0"
-	NetworkMTU = 1500
+	HostIP = "192.168.1.254"
+	// DefaultTapName is the interface when none is given (the image build).
+	// A sandbox's comes from its identity (an onboard NIC's name, enp6s0).
+	DefaultTapName = "eth0"
+	NetworkMTU     = 1500
 )
+
+var tapNameRe = regexp.MustCompile(`^(en|eth)[a-z0-9]{1,13}$`)
+
+// ValidTapName: an Ethernet interface name the kernel takes (at most 15 bytes).
+func ValidTapName(name string) bool { return tapNameRe.MatchString(name) }
 
 // Network owns the only path between the container and the outside network.
 // The caller must close the process endpoint when Run returns. A gate starts
@@ -51,7 +62,7 @@ func networkConfiguration(g *gate.EgressGate, identity *Identity) types.Configur
 	}
 	c := types.Configuration{
 		MTU:    NetworkMTU,
-		Subnet: "192.168.64.0/24", GatewayIP: GatewayIP,
+		Subnet: Subnet, GatewayIP: GatewayIP,
 		GatewayMacAddress: gatewayMAC,
 		DHCPStaticLeases:  map[string]string{GuestIP: guestMAC},
 		// No NAT-to-host entries and no automatically published ports.

@@ -101,16 +101,23 @@ cd wannabe
 
 第一次要几十分钟（主要是构建镜像）。中途失败了，解决后再运行一次就行，做过的步骤会跳过。
 
+想让 sandbox 和你的机器几乎一样（同一个用户、home、conda、`/mnt`、GPU，只有网络、机器身份和
+Claude / Codex / happy 的登录是它自己的），用宿主镜像模式：`WANNABE_PROFILE=host ./setup.sh ~/node.yaml`。
+已有的 sandbox 也能改过来：`happy-sandbox config preset host && happy-sandbox restart`。
+详见 [`packages/happy-sandbox/README.md`](packages/happy-sandbox/README.md)「宿主镜像模式」。
+
 **第 4 步：登录**
 
 ```bash
-happy-sandbox shell     # 进入 sandbox
+shell1                  # 进入 1 号 sandbox（= happy-sandbox shell）
 happy auth login        # 用手机 App 扫码
 claude                  # 登录你的 Claude 账号
 codex login             # 可选
 ```
 
-手机 App 里会出现这台 sandbox，在上面开会话就行。也可以用网页：
+手机 App 里会出现这台 sandbox（名字是「宿主名-1」），在上面开会话就行。在宿主上也可以直接
+`claude1`、`codex1`、`happy1`：在当前目录进沙箱启动。再建一个沙箱（`happy-sandbox init ...`）
+自动就是 2 号，命令是 `claude2` 等，可以登录另一个账号；其他命令在后面跟序号，如 `happy-sandbox status 2`。也可以用网页：
 <https://pandoxie.github.io/wannabe>。
 
 ---

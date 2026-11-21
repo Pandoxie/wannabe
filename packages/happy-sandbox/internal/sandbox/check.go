@@ -10,6 +10,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -135,7 +136,7 @@ func Prerequisites(ctx context.Context) []Check {
 		ctl := strings.Join(info.Host.CgroupControllers, " ")
 		// GPUs are optional: shown, never a failure.
 		if g, err := FindGPU(""); g != nil {
-			add(Check{Name: "NVIDIA GPU (optional)", OK: true, Detail: fmt.Sprintf("%s: %d device nodes, %d driver files; sandboxes get it unless \"gpu\": \"none\"", g.Spec, len(g.Devices), len(g.Mounts))})
+			add(Check{Name: "NVIDIA GPU (optional)", OK: true, Detail: fmt.Sprintf("%s: %d device nodes, %d driver files; sandboxes get it unless access.devices.gpu is none", g.Spec, len(g.Devices), len(g.Mounts))})
 		} else {
 			detail := "no NVIDIA CDI spec (" + strings.Join(CDISpecPaths, ", ") + "): sandboxes have no GPU"
 			if err != nil {
@@ -199,6 +200,18 @@ func Prerequisites(ctx context.Context) []Check {
 				Fix: "if not done yet: happy-sandbox selinux-policy --install (once, uses sudo)"})
 		}
 	}
+	// AMD (access.devices.gpu amd or auto): only reported when the host has one.
+	if exists("/dev/kfd") {
+		inRender := false
+		if g, err := user.LookupGroup("render"); err == nil && u != nil {
+			ids, _ := u.GroupIds()
+			inRender = slices.Contains(ids, g.Gid)
+		}
+		add(Check{Name: "AMD GPU for sandboxes (ROCm, experimental)", Warn: true, OK: inRender && exists("/opt/rocm"),
+			Detail: fmt.Sprintf("render group: %v, ROCm: %v", inRender, exists("/opt/rocm")),
+			Fix:    "only for access.devices.gpu amd: install ROCm and sudo usermod -aG render,video " + name + " (log in again)"})
+	}
+
 	free, _ := freeBytes(Home())
 	add(Check{Name: "disk space for the homes", OK: free >= needFreeHome, Detail: fmt.Sprintf("%.1f GB free for %s", float64(free)/(1<<30), Home()),
 		Fix: fmt.Sprintf("free at least %d GB there", needFreeHome>>30)})

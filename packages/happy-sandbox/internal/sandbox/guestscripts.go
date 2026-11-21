@@ -9,8 +9,7 @@ import (
 	"strings"
 )
 
-// The guest's own scripts (copies of image/hsb-apt-record.sh and
-// image/hsb-packages.sh; a test keeps them equal), written into the container
+// The guest's own scripts (the image copies the same files), written into the container
 // at every start like the network helper. A fix to them then reaches existing
 // sandboxes with a new happy-sandbox, without a new image.
 //

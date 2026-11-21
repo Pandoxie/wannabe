@@ -26,9 +26,10 @@ mkdir -p "$run/run/link" && chmod 700 "$run" "$run/run" "$run/run/link"
 
 echo "==> base image"
 # APT_MIRROR (optional) only speeds up the base build; the image keeps the
-# official Ubuntu archive either way.
+# official Ubuntu archive either way. The build context is the package
+# (.containerignore keeps it to the guest files).
 "$P" build --network host ${APT_MIRROR:+--build-arg "APT_MIRROR=$APT_MIRROR"} \
-    -t localhost/happy-sandbox-base:dev "$here/image" > "$run/base-build.log" 2>&1
+    -t localhost/happy-sandbox-base:dev -f "$here/image/Containerfile" "$here" > "$run/base-build.log" 2>&1
 
 echo "==> seccomp profile"
 "$here/tools/seccomp-profile" > "$run/seccomp.json"
