@@ -1,7 +1,8 @@
 # happy-sandbox guest: Ubuntu 24.04 LTS, systemd as PID 1, cron, and the
 # tools happy needs. The container has no network of its own; the host
 # passes its only interface (a TAP) in. This is the base; provision.sh adds
-# Node, claude, codex and happy into /home/dev through that network.
+# Node, claude and happy (codex with WITH_CODEX=1) into /home/dev through
+# that network.
 FROM docker.io/library/ubuntu:24.04
 
 # APT_MIRROR only speeds up this build (e.g. --build-arg

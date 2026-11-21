@@ -2,14 +2,16 @@
 # Builds the happy-sandbox image in two steps:
 #   1. the base (image/Containerfile): Ubuntu 24.04, systemd, cron, build tools;
 #   2. a sandbox started from it, with its gated network (the one VLESS exit),
-#      runs image/provision.sh as dev: Node, Claude Code, Codex, happy into
-#      /home/dev. The result is committed as the image.
+#      runs image/provision.sh as dev: Node, Claude Code, happy (Codex only
+#      with WITH_CODEX=1) into /home/dev. The result is committed as the image.
 # No proxy credential is ever inside the build: the container's only network
 # is the sandbox network itself.
 #
 #   tools/build-image.sh NODE_FILE EXIT_IP [TAG]
 #   HAPPY_DIST_URL / HAPPY_DIST_AUTH: where provision.sh installs happy from
 #   (https://…, or file:///dir: a local release directory, copied in)
+#   WITH_CODEX=1: also install Codex (default: not; host-profile sandboxes
+#   use the host's, others can install it themselves)
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 B="${HSB_BUILD:-$HOME/build/happy-sandbox-v2}"
@@ -85,7 +87,7 @@ esac
 
 echo "==> provision (log: $run/provision.log)"
 "$P" exec --user dev --workdir /home/dev -e HOME=/home/dev -e "EXPECTED_EXIT_IP=$exit_ip" \
-    -e "HAPPY_DIST_URL=$dist" \
+    -e "HAPPY_DIST_URL=$dist" -e "WITH_CODEX=${WITH_CODEX:-0}" \
     -e "HAPPY_DIST_AUTH=${HAPPY_DIST_AUTH:-}" -e LOCK=/tmp/installers.lock.json \
     "$name" bash /tmp/provision.sh > "$run/provision.log" 2>&1
 tail -8 "$run/provision.log"

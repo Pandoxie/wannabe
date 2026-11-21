@@ -48,7 +48,7 @@ tools/build-image.sh NODE_FILE EXIT_IP [TAG]     # default localhost/happy-sandb
    link to it).
 2. A build sandbox from the base, with its own gated network (the node's
    credentials stay on the host), runs `provision.sh` as dev: Node (nvm,
-   prebuilt only), Claude Code, Codex, happy; installers pinned by SHA-256,
+   prebuilt only), Claude Code, happy (Codex only with WITH_CODEX=1); installers pinned by SHA-256,
    steps retried; per-machine state removed (`.claude.json`, `~/.happy`,
    caches).
 3. Committed; the script refuses an image with a machine id.

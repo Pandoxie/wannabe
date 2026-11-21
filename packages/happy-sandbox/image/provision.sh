@@ -1,5 +1,5 @@
 #!/bin/bash
-# Installs Node (nvm), Claude Code, Codex and happy into /home/dev, as dev,
+# Installs Node (nvm), Claude Code, happy (and Codex with WITH_CODEX=1) into /home/dev, as dev,
 # inside a running sandbox: all downloads go through the sandbox's one exit.
 # After the happy-sandbox headless work's install-tools.sh (pinned installer
 # scripts, binary-only Node, relative links).
@@ -8,8 +8,10 @@
 #   HAPPY_DIST_URL     where happy's releases are (http(s) via the exit, or file:/// inside the box)
 #   HAPPY_DIST_AUTH    its login, if it needs one
 #   LOCK               installers.lock.json (url + sha256 per installer)
+#   WITH_CODEX         1: also Codex (default 0: a host-profile sandbox uses the host's)
 set -euo pipefail
 : "${EXPECTED_EXIT_IP:?}" "${HAPPY_DIST_URL:?}" "${LOCK:?}"
+WITH_CODEX="${WITH_CODEX:-0}"
 [ "$(id -un)" = dev ] || { echo "run as dev" >&2; exit 1; }
 cd "$HOME"
 
@@ -50,7 +52,8 @@ fetch() {
         echo "$1: sha256 $got (from $host, not pinned)"
     fi
 }
-retry fetch nvm.sh; retry fetch claude.sh; retry fetch codex.sh
+retry fetch nvm.sh; retry fetch claude.sh
+[ "$WITH_CODEX" != 1 ] || retry fetch codex.sh
 
 export NVM_DIR="$HOME/.nvm"
 PROFILE=/dev/null METHOD=script bash "$work/nvm.sh"
@@ -59,7 +62,7 @@ retry nvm install -b --lts    # prebuilt binary only, never a source build
 nvm alias default "$(node --version)"
 
 retry bash "$work/claude.sh" latest
-retry env CODEX_NON_INTERACTIVE=true sh "$work/codex.sh"
+[ "$WITH_CODEX" != 1 ] || retry env CODEX_NON_INTERACTIVE=true sh "$work/codex.sh"
 export PATH="$HOME/.local/bin:$PATH"
 
 # happy: the same one-line installer as any server (no daemon here; nightly
@@ -95,8 +98,11 @@ python3 - <<'PY'
 import json, subprocess
 from pathlib import Path
 v = {}
+import shutil
 for k, cmd in {'node': ['node', '--version'], 'npm': ['npm', '--version'], 'claude': ['claude', '--version'],
                'codex': ['codex', '--version'], 'happy': ['happy', '--version']}.items():
+    if k == 'codex' and not shutil.which('codex'):
+        continue  # not in this image (WITH_CODEX=0)
     v[k] = subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT).strip().splitlines()[0]
 Path.home().joinpath('.happy-sandbox-tools.json').write_text(json.dumps(v, indent=2) + '\n')
 print(json.dumps(v, indent=2))

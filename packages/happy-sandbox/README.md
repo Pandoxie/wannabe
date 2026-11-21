@@ -1,6 +1,8 @@
 # happy-sandbox
 
-一个 rootless Podman 容器，用起来像一台小 Linux 服务器（systemd、cron、Node、Claude Code、Codex、happy 都在里面）。
+一个 rootless Podman 容器，用起来像一台小 Linux 服务器（systemd、cron、Node、Claude Code、happy 都在里面）。
+
+默认镜像不带 Codex：宿主镜像模式下用宿主自己装的 `codex`；隔离模式下要用的话，在沙箱里自己装，或者构建镜像时加 `WITH_CODEX=1`（`WITH_CODEX=1 tools/build-image.sh …`）。
 **它对外只有一条路：一个 VLESS 出口，并且锁定在这个出口的 IP 上。** 出口不对或连不上，所有对外连接立即断开，不会走宿主的网络。
 
 它和 happy 是两套东西：`happy update` 和 happy 的安装脚本都不会装它，也不会下载它的镜像。
