@@ -39,7 +39,7 @@ type Config struct {
 	PidsLimit   int64   `json:"pids_limit,omitempty"`
 	Shares      []Share `json:"shares"`
 	// HostPorts opens the host's 127.0.0.1:<port> to the guest at
-	// 192.168.64.254:<port> (development, e.g. [22] for ssh to the host).
+	// 192.168.1.254:<port> (development, e.g. [22] for ssh to the host).
 	// Off by default; read when the network starts, no recreation needed.
 	HostPorts []int `json:"host_ports,omitempty"`
 	// GPU is the older GPU setting (access.devices.gpu wins): absent =

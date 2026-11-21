@@ -214,7 +214,7 @@ func (i *Instance) StartGuestLink(ctx context.Context) error {
 		"--property", "Restart=always", "--property", "RestartSec=1",
 		"/usr/local/lib/happy-sandbox/happy-sandbox", "guest-link", LinkDirInContainer + "/net.sock"}
 	if i.Identity != nil {
-		args = append(args, i.Identity.MAC)
+		args = append(args, i.Identity.MAC, i.Identity.NIC())
 	}
 	if _, err := podman(ctx, args...); err != nil {
 		return fmt.Errorf("starting the network link in the container: %v", err)
@@ -226,19 +226,27 @@ func (i *Instance) StartGuestLink(ctx context.Context) error {
 // shell running the cleanup, whose own command line contains it, is spared).
 const guestTapPattern = "^/usr/local/lib/happy-sandbox/happy-sandbox guest-tap"
 
+// NIC is the guest's interface name (the image build's container: eth0).
+func (i *Instance) NIC() string {
+	if i.Identity == nil {
+		return netstack.DefaultTapName
+	}
+	return i.Identity.NIC()
+}
+
 // clearGuestTapScript stops any guest-tap in the container and waits for its
-// TAP to go (TERM, then KILL after 5 s). Exit 0 when the TAP is gone.
-func clearGuestTapScript() string {
+// TAP (nic) to go (TERM, then KILL after 5 s). Exit 0 when the TAP is gone.
+func clearGuestTapScript(nic string) string {
 	return `p='` + guestTapPattern + `'
 pkill -TERM -f "$p" 2>/dev/null
-for _ in $(seq 50); do ip link show ` + netstack.TapName + ` >/dev/null 2>&1 || exit 0; sleep 0.1; done
+for _ in $(seq 50); do ip link show ` + nic + ` >/dev/null 2>&1 || exit 0; sleep 0.1; done
 pkill -KILL -f "$p" 2>/dev/null
-for _ in $(seq 50); do ip link show ` + netstack.TapName + ` >/dev/null 2>&1 || exit 0; sleep 0.1; done
+for _ in $(seq 50); do ip link show ` + nic + ` >/dev/null 2>&1 || exit 0; sleep 0.1; done
 exit 1`
 }
 
 func (i *Instance) clearGuestTap(ctx context.Context) error {
-	if _, err := podman(ctx, "exec", "--user", "0", i.Container(), "sh", "-c", clearGuestTapScript()); err != nil {
+	if _, err := podman(ctx, "exec", "--user", "0", i.Container(), "sh", "-c", clearGuestTapScript(i.NIC())); err != nil {
 		return fmt.Errorf("could not clear the previous network link in the container: %v", err)
 	}
 	return nil

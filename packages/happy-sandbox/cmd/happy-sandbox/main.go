@@ -138,9 +138,9 @@ func main() {
 		// sandboxes whose container is not recreated yet.
 		err = netstack.RunTAP(ctx, os.Stdin, os.Stdout, args...)
 	case "guest-link":
-		// Inside, as the hsb-link unit: guest-link SOCKET [MAC].
+		// Inside, as the hsb-link unit: guest-link SOCKET [MAC [INTERFACE]].
 		if len(args) < 1 {
-			err = errors.New("guest-link SOCKET [MAC]")
+			err = errors.New("guest-link SOCKET [MAC [INTERFACE]]")
 			break
 		}
 		err = netstack.RunLink(ctx, args[0], args[1:]...)

@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/Pandoxie/wannabe/packages/happy-sandbox/internal/netstack"
 )
 
 // Identity is everything that makes a sandbox look like one particular
@@ -26,14 +28,18 @@ import (
 // happy's machine id, Claude Code's machineID / userID and the Codex login
 // live in the home (home/), created by those tools on first use.
 type Identity struct {
-	Version    int       `json:"version"`
-	MachineID  string    `json:"machine_id"` // /etc/machine-id, 32 hex
-	MAC        string    `json:"mac"`        // the guest's network interface
-	GatewayMAC string    `json:"gateway_mac"`
-	Hostname   string    `json:"hostname"`
-	Timezone   string    `json:"timezone"` // IANA, follows the exit region
-	Locale     string    `json:"locale"`   // LANG
-	CreatedAt  time.Time `json:"created_at"`
+	Version    int    `json:"version"`
+	MachineID  string `json:"machine_id"` // /etc/machine-id, 32 hex
+	MAC        string `json:"mac"`        // the guest's network interface
+	GatewayMAC string `json:"gateway_mac"`
+	Hostname   string `json:"hostname"`
+	// Interface is the guest's network interface name: an onboard NIC's, the
+	// host's own wired one (enp6s0), so it fits the board the guest sees.
+	// Absent (identities from before): eth0.
+	Interface string    `json:"interface,omitempty"`
+	Timezone  string    `json:"timezone"` // IANA, follows the exit region
+	Locale    string    `json:"locale"`   // LANG
+	CreatedAt time.Time `json:"created_at"`
 }
 
 const (
@@ -140,7 +146,32 @@ func NewIdentity(hostname, timezone, locale string) Identity {
 		gw = randomMAC()
 	}
 	return Identity{Version: 1, MachineID: randomHex(16), MAC: mac, GatewayMAC: gw, Hostname: hostname,
-		Timezone: timezone, Locale: locale, CreatedAt: time.Now().UTC().Truncate(time.Second)}
+		Interface: HostNIC(), Timezone: timezone, Locale: locale, CreatedAt: time.Now().UTC().Truncate(time.Second)}
+}
+
+// NIC is the guest's interface name.
+func (id Identity) NIC() string {
+	if id.Interface == "" {
+		return netstack.DefaultTapName
+	}
+	return id.Interface
+}
+
+// HostNIC is the name of the host's first wired PCI interface (enp6s0,
+// eno1), else enp3s0: the guest sees the host's board (DMI), so its NIC is
+// named like that board's onboard one.
+func HostNIC() string {
+	entries, _ := os.ReadDir("/sys/class/net")
+	for _, e := range entries {
+		n := e.Name()
+		if !strings.HasPrefix(n, "en") || !netstack.ValidTapName(n) {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join("/sys/class/net", n, "device")); err == nil {
+			return n
+		}
+	}
+	return "enp3s0"
 }
 
 func (id Identity) Validate() error {
@@ -158,6 +189,9 @@ func (id Identity) Validate() error {
 	}
 	if id.MAC == id.GatewayMAC {
 		return errors.New("identity: mac and gateway_mac must differ")
+	}
+	if id.Interface != "" && !netstack.ValidTapName(id.Interface) {
+		return fmt.Errorf("identity: interface %q must look like enp6s0 or eth0", id.Interface)
 	}
 	if !hostnameRe.MatchString(id.Hostname) {
 		return fmt.Errorf("identity: hostname %q is not a valid host name", id.Hostname)
@@ -183,7 +217,18 @@ func (i *Instance) LoadIdentity() (Identity, error) {
 	if err := json.Unmarshal(data, &id); err != nil {
 		return id, fmt.Errorf("%s: %v", i.IdentityPath(), err)
 	}
-	return id, id.Validate()
+	if err := id.Validate(); err != nil {
+		return id, err
+	}
+	if id.Interface == "" {
+		// From before interface names: the host's NIC's from now on (the
+		// changed identity recreates the container at the next up).
+		id.Interface = HostNIC()
+		if err := i.SaveIdentity(id); err != nil {
+			return id, err
+		}
+	}
+	return id, nil
 }
 
 func (i *Instance) SaveIdentity(id Identity) error {

@@ -194,3 +194,45 @@ func writeTestNode(t *testing.T) string {
 	}
 	return node
 }
+
+func TestInterfaceName(t *testing.T) {
+	id := NewIdentity("ws-abc234", "", "")
+	if id.Interface == "" || !strings.HasPrefix(id.Interface, "en") || id.Validate() != nil {
+		t.Fatalf("new identity's interface %q", id.Interface)
+	}
+	for _, bad := range []string{"wlan0", "en", "enp6s0;rm", "enp0s31f6abcdefgh", "tap0"} {
+		id.Interface = bad
+		if id.Validate() == nil {
+			t.Errorf("interface %q accepted", bad)
+		}
+	}
+	id.Interface = ""
+	if id.Validate() != nil || id.NIC() != "eth0" {
+		t.Fatalf("an identity from before interface names: %q", id.NIC())
+	}
+}
+
+// An identity.json from before interface names gets the host's NIC's at load.
+func TestLoadGivesOlderIdentitiesAnInterface(t *testing.T) {
+	t.Setenv("HSB_HOME", t.TempDir())
+	inst, err := Create(Config{Name: "1", ExitIP: "8.8.8.8"}, writeTestNode(t), NewIdentity("ws-abc235", "", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := *inst.Identity
+	id.Interface = ""
+	if err := inst.SaveIdentity(id); err != nil {
+		t.Fatal(err)
+	}
+	again, err := Load("1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Identity.Interface != HostNIC() {
+		t.Fatalf("interface %q, want %q", again.Identity.Interface, HostNIC())
+	}
+	data, _ := os.ReadFile(again.IdentityPath())
+	if !strings.Contains(string(data), `"interface": "`+HostNIC()+`"`) {
+		t.Fatalf("not saved:\n%s", data)
+	}
+}

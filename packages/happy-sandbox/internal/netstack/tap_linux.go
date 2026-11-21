@@ -21,20 +21,27 @@ import (
 
 // RunTAP is an internal guest-only helper. Its stdout is exclusively framed
 // Ethernet data. The caller connects it to the host-owned network stack.
-func RunTAP(ctx context.Context, input io.Reader, output io.Writer, macs ...string) error {
+// args: [MAC [INTERFACE]] (defaults GuestMAC, DefaultTapName).
+func RunTAP(ctx context.Context, input io.Reader, output io.Writer, args ...string) error {
 	if err := requirePrivateGuestNetwork(); err != nil {
 		return err
 	}
-	guestMAC := GuestMAC
-	if len(macs) > 1 {
-		return errors.New("expected at most one guest MAC")
+	guestMAC, tapName := GuestMAC, DefaultTapName
+	if len(args) > 2 {
+		return errors.New("expected at most a guest MAC and an interface name")
 	}
-	if len(macs) == 1 {
-		mac, err := net.ParseMAC(macs[0])
+	if len(args) >= 1 {
+		mac, err := net.ParseMAC(args[0])
 		if err != nil || len(mac) != 6 || mac[0]&1 != 0 {
 			return errors.New("invalid guest MAC")
 		}
 		guestMAC = mac.String()
+	}
+	if len(args) == 2 {
+		if !ValidTapName(args[1]) {
+			return fmt.Errorf("invalid interface name %q", args[1])
+		}
+		tapName = args[1]
 	}
 	// A disconnected engine exec can take a moment to deliver EOF to its old
 	// helper. Wait for that non-persistent TAP to vanish; never delete an
@@ -48,7 +55,7 @@ func RunTAP(ctx context.Context, input io.Reader, output io.Writer, macs ...stri
 		}
 		oldTap := false
 		for _, iface := range interfaces {
-			if iface.Name == TapName {
+			if iface.Name == tapName {
 				oldTap = true
 			} else if iface.Name != "lo" {
 				return errors.New("the container has another network interface; refusing to start")
@@ -85,7 +92,7 @@ func RunTAP(ctx context.Context, input io.Reader, output io.Writer, macs ...stri
 		}
 		return err
 	}
-	request, err := unix.NewIfreq(TapName)
+	request, err := unix.NewIfreq(tapName)
 	if err != nil {
 		_ = unix.Close(fd)
 		return err
@@ -102,11 +109,11 @@ func RunTAP(ctx context.Context, input io.Reader, output io.Writer, macs ...stri
 	}
 	defer file.Close()
 	for _, arguments := range [][]string{
-		{"link", "set", "dev", TapName, "address", guestMAC, "mtu", fmt.Sprint(NetworkMTU)},
+		{"link", "set", "dev", tapName, "address", guestMAC, "mtu", fmt.Sprint(NetworkMTU)},
 		{"link", "set", "dev", "lo", "up"},
-		{"address", "add", GuestIP + "/24", "dev", TapName},
-		{"link", "set", "dev", TapName, "up"},
-		{"route", "add", "default", "via", GatewayIP, "dev", TapName},
+		{"address", "add", GuestIP + "/24", "dev", tapName},
+		{"link", "set", "dev", tapName, "up"},
+		{"route", "add", "default", "via", GatewayIP, "dev", tapName},
 	} {
 		if result, err := exec.CommandContext(ctx, "ip", arguments...).CombinedOutput(); err != nil {
 			return fmt.Errorf("configure container TAP: %w: %.1024s", err, result)
@@ -186,12 +193,12 @@ func requirePrivateGuestNetwork() error {
 // the container's systemd): connect to the host network process's socket,
 // run the TAP over it, and connect again whenever the link ends — the host
 // process restarted, or the host side dropped it. Only ctx ends it.
-func RunLink(ctx context.Context, socket string, macs ...string) error {
+func RunLink(ctx context.Context, socket string, args ...string) error {
 	for ctx.Err() == nil {
 		var d net.Dialer
 		conn, err := d.DialContext(ctx, "unix", socket)
 		if err == nil {
-			err = RunTAP(ctx, conn, conn, macs...)
+			err = RunTAP(ctx, conn, conn, args...)
 			conn.Close()
 			if ctx.Err() == nil {
 				fmt.Fprintf(os.Stderr, "happy-sandbox: link ended (%v); reconnecting\n", err)

@@ -259,7 +259,7 @@ happy-sandbox restart
 
 ## 开发用：从沙箱连宿主端口（默认关）
 
-`config.json` 里写 `"host_ports": [22]`：沙箱里访问 `192.168.64.254:22`，就连到宿主本机的 `127.0.0.1:22`（比如从沙箱 ssh 到宿主）。只开列出的 TCP 端口、只到宿主本机，其他流量照旧只走出口。改完 `down` 再 `up` 生效，不重建容器。
+`config.json` 里写 `"host_ports": [22]`：沙箱里访问 `192.168.1.254:22`，就连到宿主本机的 `127.0.0.1:22`（比如从沙箱 ssh 到宿主）。只开列出的 TCP 端口、只到宿主本机，其他流量照旧只走出口。改完 `down` 再 `up` 生效，不重建容器。
 
 ## 网络是怎么锁住的
 
@@ -276,7 +276,7 @@ happy-sandbox restart
 
 1. **identity.json（我们控制）**：machine-id、网卡 MAC、hostname、时区、locale。`init` 时随机生成，不取宿主的任何信息，镜像里也不带任何身份，所以同一个镜像的不同用户、不同沙箱都各不相同。之后每次 `up` 都按这个文件来，重启宿主、换新镜像、重建容器，看到的都是同一台机器。改这个文件（或从备份恢复）后，下次 `up` 就按新的来。
    - **hostname**：默认是一个普通工作站的名字（如 `ws-7k3q2m`、`dev-k9f2xa`），不带宿主的名字，也不带 sandbox 字样。**同一台宿主上每个沙箱的 hostname 都不同**，也不会和宿主自己的一样：`init`、`identity set`、`up` 都会检查，重名就拒绝。hostname 只能随机生成，不能指定。手机 App 里看到的机器名是「宿主名-序号」，不是它。
-   - **MAC**：真实网卡厂商（Intel、Realtek）的前缀加随机的后三字节，不是一看就是虚拟网卡的「本地管理」地址。网卡名是 `eth0`。
+   - **MAC**：真实网卡厂商（Intel、Realtek）的前缀加随机的后三字节，不是一看就是虚拟网卡的「本地管理」地址。网卡名和宿主的板载网卡一样（如 `enp6s0`），存在 identity.json 的 `interface`；沙箱的网络看起来是一个普通家用局域网（本机 `192.168.1.105`，路由器 `192.168.1.1`）。容器本身仍然查得出来：TAP 网卡、没有 PCI 设备、`/run/.containerenv`（Podman 绑定挂载进来的，沙箱没有 CAP_SYS_ADMIN，删不掉也卸不掉）、`systemd-detect-virt` 显示 podman。
    - **`/etc/hosts`** 由沙箱自己写，只有 `localhost` 和自己的 hostname，不会出现宿主的主机名、局域网 IP 或容器名。
    - 改：`happy-sandbox identity N set hostname random`（新随机一个）、`set mac random`、`set timezone TZ`、`set locale L`，然后 `happy-sandbox restart N`。
 2. **宿主硬件（如实暴露）**：CPU 型号和核数、内存、内核版本。容器和宿主共用内核，改不了，同一台宿主上的所有沙箱都一样。我们不去伪造它们。硬件序列号这类只有宿主 root 能读的信息，沙箱里读不到。

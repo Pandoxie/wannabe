@@ -62,7 +62,7 @@ starts mihomo (one node, one MATCH rule, loopback SOCKS5 with a random
 password, Pdeathsig), listens on a unix socket in `run/link` (mounted at
 `/var/lib/happy-sandbox/link`), and the guest's `hsb-link` unit
 (`happy-sandbox guest-link`, started with `systemd-run` from the host)
-connects, creates the TAP `eth0` (192.168.64.2/24, gateway .1) and passes
+connects, creates the TAP (the identity's `interface`, e.g. `enp6s0`; 192.168.1.105/24, gateway .1) and passes
 Ethernet frames over the socket, reconnecting whenever the link ends (a lost
 link closes the gate; the next one gets a new stack and gate). Not a
 `podman exec` pipe: Podman 3.4 declared long-lived execs dead on busy hosts. TCP goes through the gate to the one upstream; DNS is DoH
@@ -144,7 +144,7 @@ Run these after changing the network, the image or the container setup
 | wrong exit | `init` with another `--exit-ip`: the gate never opens |
 | users | inside `id` = host uid/gid; a file written in an rw share belongs to the host user; an ro share is read-only for root too, `mount -o remount,rw` denied |
 | persistence | `down`/`up`, `share add` (recreate), a new image: home and logins kept |
-| identity | two sandboxes from one image: different `/etc/machine-id` (also `/var/lib/dbus/machine-id`), MAC of `eth0`, hostname, `date +%Z`, `$LANG`; after a new image the same; editing identity.json → applied at the next `up` |
+| identity | two sandboxes from one image: different `/etc/machine-id` (also `/var/lib/dbus/machine-id`), MAC and name of the interface, hostname, `date +%Z`, `$LANG`; after a new image the same; editing identity.json → applied at the next `up` |
 | systemd inside | `systemctl is-system-running` = `running` (no failed units) |
 | host profile | `init --profile host`: inside `id`, `$HOME`, `which python` (the host's conda in an interactive `here`), no `*_proxy`; `memory.max`, `pids.max`, `/dev/shm`, `ulimit -n` as configured; `/mnt` disks listed; `protect` paths read-only; `claude -p` not logged in, host `~/.claude.json` untouched; LAN / host / UDP still refused |
 | config applies | `config set access.resources.memory 64G` + `restart` → recreated, `memory.max` changed; a bad value or an unknown key refused |
