@@ -182,9 +182,21 @@ happy-sandbox（Linux，rootless Podman）把 happy 和 agent 放进一个容器
 | `happy cage install` | 安装 happy-sandbox（从 happy 的同一个发布源） |
 | `happy cage update` | 更新 happy-sandbox |
 | `happy cage uninstall` | 卸载 happy-sandbox |
-| `happy cage init` | 创建沙盒<br>`--node <file>` 一个 mihomo 节点文件（chmod 600）<br>`--exit-ip <ip>` 模型厂商必须看到的公网 IPv4<br>`--share SRC:TARGET[:ro]` 共享宿主机目录（可多次）<br>`--timezone <tz>` 出口所在地的时区<br>`--locale <locale>` 出口所在地的 locale<br>`--hostname <name>` 主机名（App 里显示的机器名）<br>`--image <image>` 镜像 |
+| `happy cage init` | 创建沙盒<br>`--node <file>` 一个 mihomo 节点文件（chmod 600）<br>`--exit-ip <ip>` 模型厂商必须看到的公网 IPv4<br>`--share SRC:TARGET[:ro]` 共享宿主机目录（可多次）<br>`--timezone <tz>` 出口所在地的时区<br>`--locale <locale>` 出口所在地的 locale<br>`--hostname <name>` 主机名（App 里显示的机器名）<br>`--image <image>` 镜像<br>`--profile isolated\|host` host：用宿主的用户、home、/mnt、内存和 GPU，只有网络和身份不同 |
 | `happy cage up` | 启动；出口确认是该 IP 后才放行网络 |
 | `happy cage down` | 停止（文件和登录都保留） |
+| `happy cage restart` | 先 down 再 up（让配置改动生效） |
+| `happy cage here [command...]` | 在宿主当前目录对应的沙盒路径里运行命令（默认 shell） |
+| `happy cage config show` | 显示 config.json |
+| `happy cage config set <key> <value>` | 设置一项（点号路径，如 access.resources.memory） |
+| `happy cage config unset <key>` | 删除一项 |
+| `happy cage config edit` | 用 $EDITOR 编辑后检查 |
+| `happy cage config preset host\|isolated` | 宿主镜像模式或隔离模式 |
+| `happy cage packages list` | 列出 |
+| `happy cage packages add <package>...` | 添加 |
+| `happy cage packages rm <package>...` | 删除 |
+| `happy cage rename <old> <new>` | 给沙盒改名（如 rename default 1） |
+| `happy cage links` | 编号沙盒的命令：claudeN、codexN、happyN、shellN<br>`--remove` 删除这些命令 |
 | `happy cage shell` | 以 dev 用户进入沙盒的 shell |
 | `happy cage exec -- <command>...` | 在沙盒里执行命令 |
 | `happy cage status` | 状态、出口、网络 |
@@ -192,7 +204,7 @@ happy-sandbox（Linux，rootless Podman）把 happy 和 agent 放进一个容器
 | `happy cage list` | 所有沙盒 |
 | `happy cage check` | 本机能否运行沙盒（不能的话原因） |
 | `happy cage share list` | 列出共享 |
-| `happy cage share add <src> <target>` | 添加共享<br>`--ro` 只读 |
+| `happy cage share add <src> [target]` | 添加共享<br>`--ro` 只读<br>`--submounts` 同时包含 src 下挂载的每块盘 |
 | `happy cage share rm <target>` | 删除共享 |
 | `happy cage image load <file>` | 安装镜像（OCI 包）；沙盒下次 up 时切换过去 |
 | `happy cage image list` | 已安装的镜像 |
@@ -204,7 +216,7 @@ happy-sandbox（Linux，rootless Podman）把 happy 和 agent 放进一个容器
 
 | 选项 | 作用 |
 | --- | --- |
-| `--name <name>` | 操作 "default" 以外的沙盒 |
+| `--name <name>` | 操作 1 号以外的沙盒（没有 1 号时默认是旧的 "default"） |
 
 ### `happy sandbox <命令>`
 

@@ -181,7 +181,7 @@ const AGENT: Command = {
 
 // ─── happy cage (happy-sandbox) ───
 
-const sandboxName: Option = { flag: '--name', value: '<name>', complete: 'sandboxes', text: t('Another sandbox than "default"', '操作 "default" 以外的沙盒') };
+const sandboxName: Option = { flag: '--name', value: '<name>', complete: 'sandboxes', text: t('Another sandbox than 1 (or the older "default" while there is no 1)', '操作 1 号以外的沙盒（没有 1 号时默认是旧的 "default"）') };
 
 const CAGE: Command = {
     helpWhenBare: true,
@@ -206,11 +206,34 @@ const CAGE: Command = {
                 { flag: '--locale', value: '<locale>', text: t("Locale of the exit's region", '出口所在地的 locale') },
                 { flag: '--hostname', value: '<name>', text: t('Hostname (the machine name in the app)', '主机名（App 里显示的机器名）') },
                 { flag: '--image', value: '<image>', text: t('Image', '镜像') },
+                { flag: '--profile', value: 'isolated|host', text: t("host: the host's user, home, /mnt, memory and GPU; only the network and identity differ", 'host：用宿主的用户、home、/mnt、内存和 GPU，只有网络和身份不同') },
             ],
             examples: ['happy cage init --node ~/node.yaml --exit-ip 203.0.113.7 --timezone America/New_York'],
         },
         { name: 'up', text: t('Start it; the network opens once the exit is the IP', '启动；出口确认是该 IP 后才放行网络') },
         { name: 'down', text: t('Stop it (files and logins are kept)', '停止（文件和登录都保留）') },
+        { name: 'restart', text: t('Down, then up (applies configuration changes)', '先 down 再 up（让配置改动生效）') },
+        { name: 'here', args: '[command...]', text: t("Run a command (default: a shell) inside, in the host's current directory", '在宿主当前目录对应的沙盒路径里运行命令（默认 shell）') },
+        {
+            name: 'config', text: t('What the sandbox gets of the host (apply at the next up)', '沙盒能用宿主的哪些东西（下次 up 生效）'),
+            subcommands: [
+                { name: 'show', text: t('Show config.json', '显示 config.json') },
+                { name: 'set', args: '<key> <value>', text: t('Set a key (dotted, e.g. access.resources.memory)', '设置一项（点号路径，如 access.resources.memory）') },
+                { name: 'unset', args: '<key>', text: t('Remove a key', '删除一项') },
+                { name: 'edit', text: t('Edit in $EDITOR, then check', '用 $EDITOR 编辑后检查') },
+                { name: 'preset', args: 'host|isolated', text: t('Host mirror or isolated', '宿主镜像模式或隔离模式') },
+            ],
+        },
+        {
+            name: 'packages', text: t('apt packages the sandbox keeps (installed at every up when missing)', '沙盒一直保留的 apt 包（每次 up 时补装）'),
+            subcommands: [
+                { name: 'list', text: t('List them', '列出') },
+                { name: 'add', args: '<package>...', text: t('Add packages', '添加') },
+                { name: 'rm', args: '<package>...', text: t('Remove packages', '删除') },
+            ],
+        },
+        { name: 'rename', args: '<old> <new>', text: t('Give a sandbox another name (e.g. rename default 1)', '给沙盒改名（如 rename default 1）') },
+        { name: 'links', text: t('The commands of numbered sandboxes: claudeN, codexN, happyN, shellN', '编号沙盒的命令：claudeN、codexN、happyN、shellN'), options: [{ flag: '--remove', text: t('Remove them', '删除这些命令') }] },
         { name: 'shell', text: t('A shell inside, as dev', '以 dev 用户进入沙盒的 shell') },
         { name: 'exec', args: '-- <command>...', text: t('Run a command inside', '在沙盒里执行命令') },
         { name: 'status', text: t('State, exit, network', '状态、出口、网络') },
@@ -221,7 +244,7 @@ const CAGE: Command = {
             name: 'share', text: t('Host directories inside the sandbox (apply at the next up)', '共享到沙盒的宿主机目录（下次 up 生效）'),
             subcommands: [
                 { name: 'list', text: t('List shares', '列出共享') },
-                { name: 'add', args: '<src> <target>', argComplete: 'dirs', text: t('Add a share', '添加共享'), options: [{ flag: '--ro', text: t('Read-only', '只读') }] },
+                { name: 'add', args: '<src> [target]', argComplete: 'dirs', text: t('Add a share', '添加共享'), options: [{ flag: '--ro', text: t('Read-only', '只读') }, { flag: '--submounts', text: t('Also every disk mounted below src', '同时包含 src 下挂载的每块盘') }] },
                 { name: 'rm', args: '<target>', text: t('Remove a share', '删除共享') },
             ],
         },

@@ -182,9 +182,21 @@ happy-sandbox (Linux, rootless Podman) runs happy and the agents in a container 
 | `happy cage install` | Install happy-sandbox (from the release source happy came from) |
 | `happy cage update` | Update happy-sandbox |
 | `happy cage uninstall` | Remove happy-sandbox |
-| `happy cage init` | Create a sandbox<br>`--node <file>` One mihomo node (chmod 600)<br>`--exit-ip <ip>` The public IPv4 the providers must see<br>`--share SRC:TARGET[:ro]` Share a host directory (repeatable)<br>`--timezone <tz>` Time zone of the exit's region<br>`--locale <locale>` Locale of the exit's region<br>`--hostname <name>` Hostname (the machine name in the app)<br>`--image <image>` Image |
+| `happy cage init` | Create a sandbox<br>`--node <file>` One mihomo node (chmod 600)<br>`--exit-ip <ip>` The public IPv4 the providers must see<br>`--share SRC:TARGET[:ro]` Share a host directory (repeatable)<br>`--timezone <tz>` Time zone of the exit's region<br>`--locale <locale>` Locale of the exit's region<br>`--hostname <name>` Hostname (the machine name in the app)<br>`--image <image>` Image<br>`--profile isolated\|host` host: the host's user, home, /mnt, memory and GPU; only the network and identity differ |
 | `happy cage up` | Start it; the network opens once the exit is the IP |
 | `happy cage down` | Stop it (files and logins are kept) |
+| `happy cage restart` | Down, then up (applies configuration changes) |
+| `happy cage here [command...]` | Run a command (default: a shell) inside, in the host's current directory |
+| `happy cage config show` | Show config.json |
+| `happy cage config set <key> <value>` | Set a key (dotted, e.g. access.resources.memory) |
+| `happy cage config unset <key>` | Remove a key |
+| `happy cage config edit` | Edit in $EDITOR, then check |
+| `happy cage config preset host\|isolated` | Host mirror or isolated |
+| `happy cage packages list` | List them |
+| `happy cage packages add <package>...` | Add packages |
+| `happy cage packages rm <package>...` | Remove packages |
+| `happy cage rename <old> <new>` | Give a sandbox another name (e.g. rename default 1) |
+| `happy cage links` | The commands of numbered sandboxes: claudeN, codexN, happyN, shellN<br>`--remove` Remove them |
 | `happy cage shell` | A shell inside, as dev |
 | `happy cage exec -- <command>...` | Run a command inside |
 | `happy cage status` | State, exit, network |
@@ -192,7 +204,7 @@ happy-sandbox (Linux, rootless Podman) runs happy and the agents in a container 
 | `happy cage list` | All sandboxes |
 | `happy cage check` | Can this host run sandboxes (and if not, why) |
 | `happy cage share list` | List shares |
-| `happy cage share add <src> <target>` | Add a share<br>`--ro` Read-only |
+| `happy cage share add <src> [target]` | Add a share<br>`--ro` Read-only<br>`--submounts` Also every disk mounted below src |
 | `happy cage share rm <target>` | Remove a share |
 | `happy cage image load <file>` | Install an image (OCI archive); sandboxes move to it at their next up |
 | `happy cage image list` | Installed images |
@@ -204,7 +216,7 @@ happy-sandbox (Linux, rootless Podman) runs happy and the agents in a container 
 
 | Option | What it does |
 | --- | --- |
-| `--name <name>` | Another sandbox than "default" |
+| `--name <name>` | Another sandbox than 1 (or the older "default" while there is no 1) |
 
 ### `happy sandbox <command>`
 
